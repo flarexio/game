@@ -2,6 +2,7 @@ package surveillance
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 
 	"github.com/nats-io/nats.go"
@@ -66,6 +67,16 @@ func (svc *service) AcceptPeer(offer webrtc.SessionDescription, reply string) (*
 	if err != nil {
 		return nil, err
 	}
+
+	conn.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		fmt.Printf("Peer connection state: %s\n", state.String())
+	})
+
+	conn.OnDataChannel(func(dc *webrtc.DataChannel) {
+		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+			fmt.Printf("Message from DataChannel '%s': '%s'\n", dc.Label(), string(msg.Data))
+		})
+	})
 
 	if err := conn.SetRemoteDescription(offer); err != nil {
 		return nil, err

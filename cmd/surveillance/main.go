@@ -83,7 +83,8 @@ func run(cli *cli.Context) error {
 		return err
 	}
 
-	srv.AddEndpoint("peers.negotiation", surveillance.AcceptPeerHandler(svc))
+	group := srv.AddGroup("peers")
+	group.AddEndpoint("negotiation", surveillance.AcceptPeerHandler(svc))
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

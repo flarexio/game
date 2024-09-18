@@ -16,7 +16,7 @@ func AcceptPeerHandler(svc Service) micro.HandlerFunc {
 			return
 		}
 
-		reply, ok := strings.CutPrefix(r.Reply(), ".sdp.answer")
+		reply, ok := strings.CutSuffix(r.Reply(), ".sdp.answer")
 		if !ok {
 			r.Error("400", "invalid reply", nil)
 			return
@@ -29,6 +29,7 @@ func AcceptPeerHandler(svc Service) micro.HandlerFunc {
 		}
 
 		answer := peer.LocalDescription()
+
 		r.RespondJSON(&answer)
 	}
 }
