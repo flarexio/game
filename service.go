@@ -2,11 +2,12 @@ package surveillance
 
 import (
 	"encoding/json"
-	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/nats-io/nats.go"
 	"github.com/pion/webrtc/v4"
+	"go.uber.org/zap"
 )
 
 type Service interface {
@@ -15,14 +16,16 @@ type Service interface {
 
 func NewService(nc *nats.Conn) Service {
 	return &service{
-		nc:    nc,
-		peers: make([]*Peer, 0),
+		log: zap.L().With(
+			zap.String("service", "surveillance"),
+		),
+		nc: nc,
 	}
 }
 
 type service struct {
-	nc    *nats.Conn
-	peers []*Peer
+	log *zap.Logger
+	nc  *nats.Conn
 	sync.Mutex
 }
 
@@ -55,28 +58,23 @@ func (svc *service) AcceptPeer(offer webrtc.SessionDescription, reply string) (*
 		svc.nc.Publish(reply+".candidates.callee", bs)
 	})
 
-	sub, err := svc.nc.Subscribe(reply+".candidates.caller", func(msg *nats.Msg) {
-		var candidate webrtc.ICECandidateInit
-		if err := json.Unmarshal(msg.Data, &candidate); err != nil {
-			return
-		}
+	inbox := strings.TrimPrefix(reply, "peers.negotiation.")
 
-		conn.AddICECandidate(candidate)
-	})
+	peer := &Peer{
+		PeerConnection: conn,
+		log: svc.log.With(
+			zap.String("peer", inbox),
+		),
+	}
 
+	sub, err := svc.nc.Subscribe(reply+".candidates.caller", peer.candidateUpdatedHandler())
 	if err != nil {
 		return nil, err
 	}
 
-	conn.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		fmt.Printf("Peer connection state: %s\n", state.String())
-	})
+	peer.sub = sub
 
-	conn.OnDataChannel(func(dc *webrtc.DataChannel) {
-		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-			fmt.Printf("Message from DataChannel '%s': '%s'\n", dc.Label(), string(msg.Data))
-		})
-	})
+	peer.Init()
 
 	if err := conn.SetRemoteDescription(offer); err != nil {
 		return nil, err
@@ -95,16 +93,51 @@ func (svc *service) AcceptPeer(offer webrtc.SessionDescription, reply string) (*
 
 	<-gatherComplete
 
-	peer := &Peer{conn, sub}
-
-	svc.Lock()
-	svc.peers = append(svc.peers, peer)
-	svc.Unlock()
-
 	return peer, nil
 }
 
 type Peer struct {
 	*webrtc.PeerConnection
+	log *zap.Logger
 	sub *nats.Subscription
+}
+
+func (peer *Peer) Init() {
+	log := peer.log
+
+	peer.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		log.Info("connection state updated",
+			zap.String("state", state.String()))
+	})
+
+	peer.OnDataChannel(func(dc *webrtc.DataChannel) {
+		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+			log.Info("message arrived",
+				zap.String("label", dc.Label()),
+				zap.String("message", string(msg.Data)),
+			)
+		})
+	})
+}
+
+func (peer *Peer) candidateUpdatedHandler() nats.MsgHandler {
+	log := peer.log.With(
+		zap.String("handler", "candidate_updated"),
+	)
+
+	return func(msg *nats.Msg) {
+		var candidate webrtc.ICECandidateInit
+		if err := json.Unmarshal(msg.Data, &candidate); err != nil {
+			log.Error(err.Error())
+			return
+		}
+
+		if err := peer.AddICECandidate(candidate); err != nil {
+			log.Error(err.Error())
+			return
+		}
+
+		log.Info("candidate added",
+			zap.String("candidate", candidate.Candidate))
+	}
 }
