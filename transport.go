@@ -8,6 +8,25 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+func ICEServersHandler(svc Service) micro.HandlerFunc {
+	return func(r micro.Request) {
+		p := r.Headers().Get("provider")
+		provider, err := ParseICEProvider(p)
+		if err != nil {
+			r.Error("404", err.Error(), nil)
+			return
+		}
+
+		servers, err := svc.ICEServers(provider)
+		if err != nil {
+			r.Error("417", err.Error(), nil)
+			return
+		}
+
+		r.RespondJSON(&servers)
+	}
+}
+
 func AcceptPeerHandler(svc Service) micro.HandlerFunc {
 	return func(r micro.Request) {
 		var offer *webrtc.SessionDescription
