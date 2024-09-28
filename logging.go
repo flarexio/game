@@ -50,5 +50,22 @@ func (mw *loggingMiddleware) AcceptPeer(offer webrtc.SessionDescription, reply s
 		return nil, err
 	}
 
+	log.Info("peer accepted")
+
 	return peer, nil
+}
+
+func (mw *loggingMiddleware) Close() error {
+	log := mw.log.With(
+		zap.String("action", "close"),
+	)
+
+	err := mw.next.Close()
+	if err != nil {
+		log.Error(err.Error())
+	}
+
+	log.Info("service closed")
+
+	return err
 }

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/micro"
@@ -41,6 +43,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3000*time.Millisecond)
+	defer cancel()
+
+	<-ctx.Done()
 }
 
 func run(cli *cli.Context) error {
@@ -87,6 +94,7 @@ func run(cli *cli.Context) error {
 
 	svc := surveillance.NewService(cfg, nc)
 	svc = surveillance.LoggingMiddleware(log)(svc)
+	defer svc.Close()
 
 	srv, err := micro.AddService(nc, micro.Config{
 		Name:    "surveillance",

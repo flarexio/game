@@ -1,16 +1,21 @@
 package surveillance
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/nats-io/nats.go"
 	"github.com/pion/webrtc/v4"
+	"github.com/pion/webrtc/v4/pkg/media"
+	"github.com/pion/webrtc/v4/pkg/media/h264reader"
 	"go.uber.org/zap"
 )
 
@@ -18,25 +23,114 @@ type Service interface {
 	// TODO: migrate to a dedicated ICE Server provider
 	ICEServers(provider ICEProvider) ([]webrtc.ICEServer, error)
 	AcceptPeer(offer webrtc.SessionDescription, reply string) (*Peer, error)
+	Close() error
 }
 
 type ServiceMiddleware func(next Service) Service
 
 func NewService(cfg *Config, nc *nats.Conn) Service {
-	return &service{
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+
+	svc := &service{
 		log: zap.L().With(
 			zap.String("service", "surveillance"),
 		),
-		cfg: cfg,
-		nc:  nc,
+		cfg:    cfg,
+		nc:     nc,
+		peers:  make([]*Peer, 0),
+		cancel: cancel,
 	}
+
+	go svc.listenUDS(ctx)
+
+	return svc
 }
 
 type service struct {
-	log *zap.Logger
-	cfg *Config
-	nc  *nats.Conn
-	sync.Mutex
+	log    *zap.Logger
+	cfg    *Config
+	nc     *nats.Conn
+	peers  []*Peer
+	track  *webrtc.TrackLocalStaticSample
+	cancel context.CancelFunc
+	sync.RWMutex
+}
+
+func (svc *service) listenUDS(ctx context.Context) {
+	address := "/home/ar0660/video/input.sock"
+
+	log := svc.log.With(
+		zap.String("action", "listen_uds"),
+		zap.String("address", address),
+	)
+
+	listener, err := net.Listen("unix", address)
+	if err != nil {
+		log.Error(err.Error())
+		return
+	}
+	log.Info("unix socket opened")
+
+	go func(ctx context.Context, listener net.Listener) {
+		<-ctx.Done()
+
+		listener.Close()
+		log.Info("unix socket closed")
+	}(ctx, listener)
+
+	track, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
+		MimeType: webrtc.MimeTypeH264,
+	}, "video", "pion")
+
+	if err != nil {
+		log.Error(err.Error())
+		return
+	}
+
+	svc.track = track
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Error(err.Error())
+			return
+		}
+
+		go func(ctx context.Context, conn net.Conn) {
+			log := log.With(
+				zap.String("address", conn.RemoteAddr().String()),
+			)
+
+			reader, err := h264reader.NewReader(conn)
+			if err != nil {
+				log.Error(err.Error())
+				return
+			}
+
+			log.Info("playing")
+
+			for {
+				select {
+				case <-ctx.Done():
+					log.Info("done")
+					return
+
+				default:
+					nal, err := reader.NextNAL()
+					if err != nil {
+						log.Error(err.Error())
+						return
+					}
+
+					track.WriteSample(media.Sample{
+						Data:     nal.Data,
+						Duration: 40 * time.Millisecond,
+					})
+				}
+			}
+		}(ctx, conn)
+	}
 }
 
 func (svc *service) ICEServers(provider ICEProvider) ([]webrtc.ICEServer, error) {
@@ -187,6 +281,8 @@ func (svc *service) AcceptPeer(offer webrtc.SessionDescription, reply string) (*
 		),
 	}
 
+	peer.Init()
+
 	sub, err := svc.nc.Subscribe(reply+".candidates.caller", peer.candidateUpdatedHandler())
 	if err != nil {
 		return nil, err
@@ -194,7 +290,9 @@ func (svc *service) AcceptPeer(offer webrtc.SessionDescription, reply string) (*
 
 	peer.sub = sub
 
-	peer.Init()
+	if _, err := conn.AddTrack(svc.track); err != nil {
+		return nil, err
+	}
 
 	if err := conn.SetRemoteDescription(offer); err != nil {
 		return nil, err
@@ -212,6 +310,10 @@ func (svc *service) AcceptPeer(offer webrtc.SessionDescription, reply string) (*
 	}
 
 	<-gatherComplete
+
+	svc.Lock()
+	svc.peers = append(svc.peers, peer)
+	svc.Unlock()
 
 	return peer, nil
 }
@@ -260,4 +362,28 @@ func (peer *Peer) candidateUpdatedHandler() nats.MsgHandler {
 		log.Info("candidate added",
 			zap.String("candidate", candidate.Candidate))
 	}
+}
+
+func (peer *Peer) ICEConnectionStateChangeHandler(cancel context.CancelFunc) func(webrtc.ICEConnectionState) {
+	log := peer.log.With(
+		zap.String("handler", "ice_connection_state_change"),
+	)
+
+	return func(state webrtc.ICEConnectionState) {
+		log.Info("connection state has changed",
+			zap.String("state", state.String()))
+
+		if state == webrtc.ICEConnectionStateConnected {
+			cancel()
+		}
+	}
+}
+
+func (svc *service) Close() error {
+	if svc.cancel != nil {
+		svc.cancel()
+		svc.cancel = nil
+	}
+
+	return nil
 }
