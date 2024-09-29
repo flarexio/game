@@ -1,4 +1,4 @@
-package surveillance
+package game
 
 import (
 	"encoding/json"

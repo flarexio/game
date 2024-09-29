@@ -14,7 +14,7 @@ import (
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 
-	"github.com/flarexio/surveillance"
+	"github.com/flarexio/game"
 )
 
 const (
@@ -23,12 +23,12 @@ const (
 
 func main() {
 	app := &cli.App{
-		Name: "surveillance",
+		Name: "game",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "path",
-				Usage:   "Specifies the working directory for the Surveillance service.",
-				EnvVars: []string{"SURVEILLANCE_PATH"},
+				Usage:   "Specifies the working directory for the Game service.",
+				EnvVars: []string{"GAME_PATH"},
 			},
 			&cli.StringFlag{
 				Name:    "nats",
@@ -66,7 +66,7 @@ func run(cli *cli.Context) error {
 			return err
 		}
 
-		path = homeDir + "/.flarex/surveillance"
+		path = homeDir + "/.flarex/game"
 	}
 
 	f, err := os.Open(path + "/config.yaml")
@@ -75,7 +75,7 @@ func run(cli *cli.Context) error {
 	}
 	defer f.Close()
 
-	var cfg *surveillance.Config
+	var cfg *game.Config
 	if err := yaml.NewDecoder(f).Decode(&cfg); err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func run(cli *cli.Context) error {
 	natsCreds := path + "/user.creds"
 
 	nc, err := nats.Connect(natsURL,
-		nats.Name("surveillance"),
+		nats.Name("game"),
 		nats.UserCredentials(natsCreds),
 	)
 	if err != nil {
@@ -92,12 +92,12 @@ func run(cli *cli.Context) error {
 	}
 	defer nc.Drain()
 
-	svc := surveillance.NewService(cfg, nc)
-	svc = surveillance.LoggingMiddleware(log)(svc)
+	svc := game.NewService(cfg, nc)
+	svc = game.LoggingMiddleware(log)(svc)
 	defer svc.Close()
 
 	srv, err := micro.AddService(nc, micro.Config{
-		Name:    "surveillance",
+		Name:    "game",
 		Version: Version,
 	})
 	defer srv.Stop()
@@ -107,8 +107,8 @@ func run(cli *cli.Context) error {
 	}
 
 	group := srv.AddGroup("peers")
-	group.AddEndpoint("iceservers", surveillance.ICEServersHandler(svc))
-	group.AddEndpoint("negotiation", surveillance.AcceptPeerHandler(svc))
+	group.AddEndpoint("iceservers", game.ICEServersHandler(svc))
+	group.AddEndpoint("negotiation", game.AcceptPeerHandler(svc))
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
