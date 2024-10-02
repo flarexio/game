@@ -10,7 +10,7 @@ func TestICEServers(t *testing.T) {
 	assert := assert.New(t)
 
 	cfg := &Config{
-		WebRTC: WebRTCConfig{
+		WebRTC: WebRTC{
 			ICEServers: []*ICEServer{
 				{
 					Provider: Google,

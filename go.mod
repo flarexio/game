@@ -3,11 +3,11 @@ module github.com/flarexio/game
 go 1.23.0
 
 require (
+	github.com/flarexio/core v1.0.3
 	github.com/go-resty/resty/v2 v2.15.3
 	github.com/nats-io/nats.go v1.37.0
 	github.com/pion/webrtc/v4 v4.0.0-beta.30
 	github.com/stretchr/testify v1.9.0
-	github.com/test-go/testify v1.1.4
 	github.com/urfave/cli/v2 v2.27.4
 	go.uber.org/zap v1.27.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -17,7 +17,7 @@ require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/klauspost/compress v1.17.2 // indirect
+	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/nats-io/nkeys v0.4.7 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/pion/datachannel v1.5.9 // indirect
@@ -42,5 +42,5 @@ require (
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/crypto v0.26.0 // indirect
 	golang.org/x/net v0.28.0 // indirect
-	golang.org/x/sys v0.24.0 // indirect
+	golang.org/x/sys v0.25.0 // indirect
 )

@@ -22,6 +22,23 @@ type loggingMiddleware struct {
 	next Service
 }
 
+func (mw *loggingMiddleware) FindStream(name string) (*Stream, error) {
+	log := mw.log.With(
+		zap.String("action", "find_stream"),
+		zap.String("stream", name),
+	)
+
+	stream, err := mw.next.FindStream(name)
+	if err != nil {
+		log.Error(err.Error())
+		return nil, err
+	}
+
+	log.Info("stream got")
+
+	return stream, nil
+}
+
 func (mw *loggingMiddleware) ICEServers(provider ICEProvider) ([]webrtc.ICEServer, error) {
 	log := mw.log.With(
 		zap.String("action", "ice_servers"),

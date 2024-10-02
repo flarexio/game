@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,10 +17,15 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
 	"github.com/pion/webrtc/v4/pkg/media/h264reader"
+	"github.com/pion/webrtc/v4/pkg/media/oggreader"
 	"go.uber.org/zap"
+
+	"github.com/flarexio/core/model"
 )
 
 type Service interface {
+	FindStream(name string) (*Stream, error)
+
 	// TODO: migrate to a dedicated ICE Server provider
 	ICEServers(provider ICEProvider) ([]webrtc.ICEServer, error)
 	AcceptPeer(offer webrtc.SessionDescription, reply string) (*Peer, error)
@@ -34,7 +40,7 @@ func NewService(cfg *Config, nc *nats.Conn) Service {
 
 	svc := &service{
 		log: zap.L().With(
-			zap.String("service", "surveillance"),
+			zap.String("service", "game"),
 		),
 		cfg:    cfg,
 		nc:     nc,
@@ -42,53 +48,120 @@ func NewService(cfg *Config, nc *nats.Conn) Service {
 		cancel: cancel,
 	}
 
-	go svc.listenUDS(ctx)
+	svc.buildStreams(ctx, cfg.Streams)
 
 	return svc
 }
 
 type service struct {
-	log    *zap.Logger
-	cfg    *Config
-	nc     *nats.Conn
-	peers  []*Peer
-	track  *webrtc.TrackLocalStaticSample
-	cancel context.CancelFunc
+	log     *zap.Logger
+	cfg     *Config
+	nc      *nats.Conn
+	streams map[string]*Stream
+	peers   []*Peer
+	cancel  context.CancelFunc
 	sync.RWMutex
 }
 
-func (svc *service) listenUDS(ctx context.Context) {
-	address := "/home/ar0660/video/input.sock"
+func (svc *service) buildStreams(ctx context.Context, streams []*Stream) error {
+	streamMap := make(map[string]*Stream)
+	for _, stream := range streams {
+		for i, origin := range stream.Origins {
+			if video := origin.Video; video != nil {
+				if video.Codec() == CodecNone {
+					continue
+				}
+
+				trackID := "video_" + strconv.Itoa(i)
+
+				switch origin.Transport {
+				case TransportRaw:
+					track, err := webrtc.NewTrackLocalStaticSample(
+						webrtc.RTPCodecCapability{
+							MimeType: video.Codec().MimeType(),
+						}, trackID, stream.Name,
+					)
+
+					if err != nil {
+						return err
+					}
+
+					video.track = track
+
+					go svc.listen(ctx, video)
+
+				default:
+					return errors.New("transport unsupported")
+				}
+			}
+
+			if audio := origin.Audio; audio != nil {
+				if audio.Codec() == CodecNone {
+					continue
+				}
+
+				trackID := "audio_" + strconv.Itoa(i)
+
+				switch origin.Transport {
+				case TransportRaw:
+					track, err := webrtc.NewTrackLocalStaticSample(
+						webrtc.RTPCodecCapability{
+							MimeType: audio.Codec().MimeType(),
+						}, trackID, stream.Name,
+					)
+
+					if err != nil {
+						return err
+					}
+
+					audio.track = track
+
+					go svc.listen(ctx, audio)
+
+				default:
+					return errors.New("transport unsupported")
+				}
+			}
+		}
+
+		streamMap[stream.Name] = stream
+	}
+
+	svc.streams = streamMap
+
+	return nil
+}
+
+func (svc *service) listen(ctx context.Context, track Track) {
+	url := track.Address()
+
+	network := url.Scheme
+
+	address := url.Host
+	if url.Scheme == "unix" {
+		address = url.Path
+	}
 
 	log := svc.log.With(
-		zap.String("action", "listen_uds"),
+		zap.String("action", "listen"),
+		zap.String("network", network),
 		zap.String("address", address),
 	)
 
-	listener, err := net.Listen("unix", address)
+	listener, err := net.Listen(network, address)
 	if err != nil {
 		log.Error(err.Error())
 		return
 	}
-	log.Info("unix socket opened")
+
+	log.Info("socket opened")
 
 	go func(ctx context.Context, listener net.Listener) {
 		<-ctx.Done()
 
 		listener.Close()
-		log.Info("unix socket closed")
+		log.Info("socket closed")
 	}(ctx, listener)
-
-	track, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
-		MimeType: webrtc.MimeTypeH264,
-	}, "video", "pion")
-
-	if err != nil {
-		log.Error(err.Error())
-		return
-	}
-
-	svc.track = track
 
 	for {
 		conn, err := listener.Accept()
@@ -97,40 +170,130 @@ func (svc *service) listenUDS(ctx context.Context) {
 			return
 		}
 
-		go func(ctx context.Context, conn net.Conn) {
-			log := log.With(
-				zap.String("address", conn.RemoteAddr().String()),
-			)
+		log := log.With(
+			zap.String("remote", conn.RemoteAddr().String()),
+			zap.String("codec", string(track.Codec())),
+		)
 
-			reader, err := h264reader.NewReader(conn)
+		ctx = context.WithValue(ctx, model.Logger, log)
+
+		switch track.Codec() {
+		case CodecH264:
+			go svc.h264Handler(ctx, conn, track)
+		case CodecOpus:
+			go svc.oggHandler(ctx, conn, track)
+		default:
+			log.Error("codec unsupported")
+		}
+	}
+}
+
+func (svc *service) h264Handler(ctx context.Context, conn net.Conn, video Track) {
+	log, ok := ctx.Value(model.Logger).(*zap.Logger)
+	if !ok {
+		log = svc.log
+	}
+
+	videoTrack, ok := video.(*VideoTrack)
+	if !ok {
+		log.Error("invalid type")
+		return
+	}
+
+	track, ok := videoTrack.Track().(*webrtc.TrackLocalStaticSample)
+	if !ok {
+		log.Error("invalid type")
+		return
+	}
+
+	reader, err := h264reader.NewReader(conn)
+	if err != nil {
+		log.Error(err.Error())
+		return
+	}
+
+	log.Info("playing")
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("done")
+			return
+
+		default:
+			nal, err := reader.NextNAL()
 			if err != nil {
 				log.Error(err.Error())
 				return
 			}
 
-			log.Info("playing")
-
-			for {
-				select {
-				case <-ctx.Done():
-					log.Info("done")
-					return
-
-				default:
-					nal, err := reader.NextNAL()
-					if err != nil {
-						log.Error(err.Error())
-						return
-					}
-
-					track.WriteSample(media.Sample{
-						Data:     nal.Data,
-						Duration: 40 * time.Millisecond,
-					})
-				}
-			}
-		}(ctx, conn)
+			track.WriteSample(media.Sample{
+				Data:     nal.Data,
+				Duration: 40 * time.Millisecond,
+			})
+		}
 	}
+}
+
+func (svc *service) oggHandler(ctx context.Context, conn net.Conn, audio Track) {
+	log, ok := ctx.Value(model.Logger).(*zap.Logger)
+	if !ok {
+		log = svc.log
+	}
+
+	audioTrack, ok := audio.(*AudioTrack)
+	if !ok {
+		log.Error("invalid type")
+		return
+	}
+
+	track, ok := audioTrack.Track().(*webrtc.TrackLocalStaticSample)
+	if !ok {
+		log.Error("invalid type")
+		return
+	}
+
+	reader, _, err := oggreader.NewWith(conn)
+	if err != nil {
+		log.Error(err.Error())
+		return
+	}
+
+	log.Info("playing")
+
+	var lastGranule uint64
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("done")
+			return
+
+		default:
+			payload, header, err := reader.ParseNextPage()
+			if err != nil {
+				log.Error(err.Error())
+				return
+			}
+
+			sampleCount := float64(header.GranulePosition - lastGranule)
+			lastGranule = header.GranulePosition
+			sampleDuration := time.Duration((sampleCount/48000)*1000) * time.Millisecond
+
+			track.WriteSample(media.Sample{
+				Data:     payload,
+				Duration: sampleDuration,
+			})
+		}
+	}
+}
+
+func (svc *service) FindStream(name string) (*Stream, error) {
+	stream, ok := svc.streams[name]
+	if !ok {
+		return nil, errors.New("stream not found")
+	}
+
+	return stream, nil
 }
 
 func (svc *service) ICEServers(provider ICEProvider) ([]webrtc.ICEServer, error) {
@@ -290,7 +453,26 @@ func (svc *service) AcceptPeer(offer webrtc.SessionDescription, reply string) (*
 
 	peer.sub = sub
 
-	if _, err := conn.AddTrack(svc.track); err != nil {
+	stream, err := svc.FindStream("stream")
+	if err != nil {
+		return nil, err
+	}
+
+	videoTrack, err := stream.VideoTrack()
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := conn.AddTrack(videoTrack); err != nil {
+		return nil, err
+	}
+
+	audioTrack, err := stream.AudioTrack()
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := conn.AddTrack(audioTrack); err != nil {
 		return nil, err
 	}
 

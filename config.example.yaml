@@ -7,3 +7,14 @@ webrtc:
   - provider: metered
     id: ...
     token: ...
+
+streams:
+- name: stream
+  origins:
+  - transport: raw
+    video:
+      address: unix:///tmp/stream/video.sock
+      codec: h264
+    audio:
+      address: unix:///tmp/stream/audio.sock
+      codec: opus
