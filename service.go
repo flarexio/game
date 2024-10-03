@@ -2,6 +2,7 @@ package game
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -516,10 +517,19 @@ func (peer *Peer) Init() {
 
 	peer.OnDataChannel(func(dc *webrtc.DataChannel) {
 		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-			log.Info("message arrived",
-				zap.String("label", dc.Label()),
-				zap.String("message", string(msg.Data)),
-			)
+			switch dc.Label() {
+			case "gamepad":
+				buttons := msg.Data[0:2]
+
+				leftTrigger := msg.Data[2:3]
+				rightTrigger := msg.Data[3:4]
+
+				leftThumbStickX := int16(binary.BigEndian.Uint16(msg.Data[4:6]))
+				leftThumbStickY := int16(binary.BigEndian.Uint16(msg.Data[6:8]))
+				rightThumbStickX := int16(binary.BigEndian.Uint16(msg.Data[8:10]))
+				rightThumbStickY := int16(binary.BigEndian.Uint16(msg.Data[10:12]))
+				fmt.Printf("%08b %d %d (%d, %d) (%d, %d)\n", buttons, leftTrigger, rightTrigger, leftThumbStickX, leftThumbStickY, rightThumbStickX, rightThumbStickY)
+			}
 		})
 	})
 }
