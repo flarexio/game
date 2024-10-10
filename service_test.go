@@ -19,7 +19,12 @@ func TestICEServers(t *testing.T) {
 		},
 	}
 
-	svc := NewService(cfg, nil)
+	svc, err := NewService(cfg, nil)
+	if err != nil {
+		assert.Fail(err.Error())
+		return
+	}
+
 	for _, cfg := range cfg.WebRTC.ICEServers {
 		switch cfg.Provider {
 		case Google:

@@ -35,7 +35,7 @@ type Service interface {
 
 type ServiceMiddleware func(next Service) Service
 
-func NewService(cfg *Config, nc *nats.Conn) Service {
+func NewService(cfg *Config, nc *nats.Conn) (Service, error) {
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -51,7 +51,15 @@ func NewService(cfg *Config, nc *nats.Conn) Service {
 
 	svc.buildStreams(ctx, cfg.Streams)
 
-	return svc
+	gamepad := NewXBoxGamepad()
+	err := gamepad.Connect()
+	if err != nil {
+		return nil, err
+	}
+
+	svc.gamepad = gamepad
+
+	return svc, nil
 }
 
 type service struct {
@@ -60,6 +68,7 @@ type service struct {
 	nc      *nats.Conn
 	streams map[string]*Stream
 	peers   []*Peer
+	gamepad Gamepad
 	cancel  context.CancelFunc
 	sync.RWMutex
 }
@@ -230,7 +239,7 @@ func (svc *service) h264Handler(ctx context.Context, conn net.Conn, video Track)
 
 			track.WriteSample(media.Sample{
 				Data:     nal.Data,
-				Duration: 40 * time.Millisecond,
+				Duration: 33 * time.Millisecond,
 			})
 		}
 	}
@@ -443,6 +452,7 @@ func (svc *service) AcceptPeer(offer webrtc.SessionDescription, reply string) (*
 		log: svc.log.With(
 			zap.String("peer", inbox),
 		),
+		gamepad: svc.gamepad,
 	}
 
 	peer.Init()
@@ -503,8 +513,9 @@ func (svc *service) AcceptPeer(offer webrtc.SessionDescription, reply string) (*
 
 type Peer struct {
 	*webrtc.PeerConnection
-	log *zap.Logger
-	sub *nats.Subscription
+	log     *zap.Logger
+	sub     *nats.Subscription
+	gamepad Gamepad
 }
 
 func (peer *Peer) Init() {
@@ -519,16 +530,21 @@ func (peer *Peer) Init() {
 		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 			switch dc.Label() {
 			case "gamepad":
-				buttons := msg.Data[0:2]
+				report := NewXBoxGamepadReport(
+					binary.BigEndian.Uint16(msg.Data[0:2]),
+					msg.Data[2],
+					msg.Data[3],
+					int16(binary.BigEndian.Uint16(msg.Data[4:6])),
+					int16(binary.BigEndian.Uint16(msg.Data[6:8])),
+					int16(binary.BigEndian.Uint16(msg.Data[8:10])),
+					int16(binary.BigEndian.Uint16(msg.Data[10:12])),
+				)
 
-				leftTrigger := msg.Data[2:3]
-				rightTrigger := msg.Data[3:4]
-
-				leftThumbStickX := int16(binary.BigEndian.Uint16(msg.Data[4:6]))
-				leftThumbStickY := int16(binary.BigEndian.Uint16(msg.Data[6:8]))
-				rightThumbStickX := int16(binary.BigEndian.Uint16(msg.Data[8:10]))
-				rightThumbStickY := int16(binary.BigEndian.Uint16(msg.Data[10:12]))
-				fmt.Printf("%08b %d %d (%d, %d) (%d, %d)\n", buttons, leftTrigger, rightTrigger, leftThumbStickX, leftThumbStickY, rightThumbStickX, rightThumbStickY)
+				err := peer.gamepad.Update(report)
+				if err != nil {
+					log.Error(err.Error(),
+						zap.String("label", "gamepad"))
+				}
 			}
 		})
 	})
@@ -572,6 +588,11 @@ func (peer *Peer) ICEConnectionStateChangeHandler(cancel context.CancelFunc) fun
 }
 
 func (svc *service) Close() error {
+	if svc.gamepad != nil {
+		svc.gamepad.Close()
+		svc.gamepad = nil
+	}
+
 	if svc.cancel != nil {
 		svc.cancel()
 		svc.cancel = nil

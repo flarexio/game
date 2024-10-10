@@ -92,7 +92,11 @@ func run(cli *cli.Context) error {
 	}
 	defer nc.Drain()
 
-	svc := game.NewService(cfg, nc)
+	svc, err := game.NewService(cfg, nc)
+	if err != nil {
+		return err
+	}
+
 	svc = game.LoggingMiddleware(log)(svc)
 	defer svc.Close()
 
