@@ -9,12 +9,15 @@ webrtc:
     token: ...
 
 streams:
-- name: stream
+- name: stream0
   origins:
   - transport: raw
     video:
       address: unix:///tmp/stream/video.sock
       codec: h264
+- name: stream1
+  origins:
+  - transport: raw
     audio:
       address: unix:///tmp/stream/audio.sock
       codec: opus
