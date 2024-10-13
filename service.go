@@ -158,6 +158,30 @@ func (svc *service) listen(ctx context.Context, track Track) {
 		zap.String("address", address),
 	)
 
+	if strings.HasPrefix(network, "udp") {
+		addr, err := net.ResolveUDPAddr(network, address)
+		if err != nil {
+			log.Error(err.Error())
+			return
+		}
+
+		conn, err := net.ListenUDP(network, addr)
+		if err != nil {
+			log.Error(err.Error())
+			return
+		}
+
+		log.Info("socket opened")
+
+		ctx = context.WithValue(ctx, model.Logger, log)
+
+		if err := svc.trackHandler(ctx, conn, track); err != nil {
+			log.Error(err.Error())
+		}
+
+		return
+	}
+
 	listener, err := net.Listen(network, address)
 	if err != nil {
 		log.Error(err.Error())
@@ -182,20 +206,27 @@ func (svc *service) listen(ctx context.Context, track Track) {
 
 		log := log.With(
 			zap.String("remote", conn.RemoteAddr().String()),
-			zap.String("codec", string(track.Codec())),
 		)
 
 		ctx = context.WithValue(ctx, model.Logger, log)
 
-		switch track.Codec() {
-		case CodecH264:
-			go svc.h264Handler(ctx, conn, track)
-		case CodecOpus:
-			go svc.oggHandler(ctx, conn, track)
-		default:
-			log.Error("codec unsupported")
+		if err := svc.trackHandler(ctx, conn, track); err != nil {
+			log.Error(err.Error())
 		}
 	}
+}
+
+func (svc *service) trackHandler(ctx context.Context, conn net.Conn, track Track) error {
+	switch track.Codec() {
+	case CodecH264:
+		go svc.h264Handler(ctx, conn, track)
+	case CodecOpus:
+		go svc.oggHandler(ctx, conn, track)
+	default:
+		return errors.New("codec unsupported")
+	}
+
+	return nil
 }
 
 func (svc *service) h264Handler(ctx context.Context, conn net.Conn, video Track) {
@@ -203,6 +234,12 @@ func (svc *service) h264Handler(ctx context.Context, conn net.Conn, video Track)
 	if !ok {
 		log = svc.log
 	}
+
+	log = log.With(
+		zap.String("track", "video"),
+		zap.String("container", "raw"),
+		zap.String("codec", string(video.Codec())),
+	)
 
 	videoTrack, ok := video.(*VideoTrack)
 	if !ok {
@@ -227,6 +264,7 @@ func (svc *service) h264Handler(ctx context.Context, conn net.Conn, video Track)
 	for {
 		select {
 		case <-ctx.Done():
+			conn.Close()
 			log.Info("done")
 			return
 
@@ -250,6 +288,12 @@ func (svc *service) oggHandler(ctx context.Context, conn net.Conn, audio Track) 
 	if !ok {
 		log = svc.log
 	}
+
+	log = log.With(
+		zap.String("track", "audio"),
+		zap.String("container", "ogg"),
+		zap.String("codec", string(audio.Codec())),
+	)
 
 	audioTrack, ok := audio.(*AudioTrack)
 	if !ok {
@@ -275,6 +319,7 @@ func (svc *service) oggHandler(ctx context.Context, conn net.Conn, audio Track) 
 	for {
 		select {
 		case <-ctx.Done():
+			conn.Close()
 			log.Info("done")
 			return
 
@@ -464,27 +509,36 @@ func (svc *service) AcceptPeer(offer webrtc.SessionDescription, reply string) (*
 
 	peer.sub = sub
 
-	stream, err := svc.FindStream("stream")
-	if err != nil {
-		return nil, err
+	{
+		stream, err := svc.FindStream("stream0")
+		if err != nil {
+			return nil, err
+		}
+
+		videoTrack, err := stream.VideoTrack()
+		if err != nil {
+			return nil, err
+		}
+
+		if _, err := conn.AddTrack(videoTrack); err != nil {
+			return nil, err
+		}
 	}
 
-	videoTrack, err := stream.VideoTrack()
-	if err != nil {
-		return nil, err
-	}
+	{
+		stream, err := svc.FindStream("stream1")
+		if err != nil {
+			return nil, err
+		}
 
-	if _, err := conn.AddTrack(videoTrack); err != nil {
-		return nil, err
-	}
+		audioTrack, err := stream.AudioTrack()
+		if err != nil {
+			return nil, err
+		}
 
-	audioTrack, err := stream.AudioTrack()
-	if err != nil {
-		return nil, err
-	}
-
-	if _, err := conn.AddTrack(audioTrack); err != nil {
-		return nil, err
+		if _, err := conn.AddTrack(audioTrack); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := conn.SetRemoteDescription(offer); err != nil {
