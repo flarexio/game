@@ -51,9 +51,12 @@ func NewService(cfg *Config, nc *nats.Conn) (Service, error) {
 
 	svc.buildStreams(ctx, cfg.Streams)
 
-	gamepad := NewXBoxGamepad()
-	err := gamepad.Connect()
+	gamepad, err := NewGamepad()
 	if err != nil {
+		return nil, err
+	}
+
+	if err := gamepad.Connect(); err != nil {
 		return nil, err
 	}
 

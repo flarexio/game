@@ -23,7 +23,8 @@ const (
 
 func main() {
 	app := &cli.App{
-		Name: "game",
+		Name:        "game",
+		Description: "Edge Gaming services for real-time game streaming and remote game controller access to edge computer.",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "path",
