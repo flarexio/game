@@ -3,39 +3,32 @@ package nvstream
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGenerateSelfSignedCertRSA(t *testing.T) {
+func TestServerInfo(t *testing.T) {
 	assert := assert.New(t)
 
-	validFor := 20 * 365 * 24 * time.Hour
-	keyBits := 2048
-
-	certPEM, keyPEM, err := GenerateSelfSignedCertRSA(validFor, keyBits)
+	http, err := NewNvHTTP("MyGameClient", "localhost")
 	if err != nil {
 		assert.Fail(err.Error())
 		return
 	}
 
-	fmt.Println("Certificate PEM:\n" + string(certPEM))
-	fmt.Println("Key PEM:\n" + string(keyPEM))
-
-	certPEMStr := string(certPEM)
-
-	bs, err := json.Marshal(certPEMStr)
+	info, err := http.ServerInfo()
 	if err != nil {
 		assert.Fail(err.Error())
 		return
 	}
 
-	escaped := strings.ReplaceAll(string(bs), "/", `\/`)
+	bs, err := json.MarshalIndent(&info, "", "  ")
+	if err != nil {
+		assert.Fail(err.Error())
+		return
+	}
 
-	fmt.Printf("Certificate PEM JSON:\n%s\n", escaped)
-
-	fmt.Printf("%x", certPEM)
+	fmt.Println("Server Info:")
+	fmt.Println(string(bs))
 }

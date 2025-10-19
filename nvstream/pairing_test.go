@@ -1,11 +1,8 @@
 package nvstream
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"math/rand"
-	"strings"
 	"testing"
 	"time"
 
@@ -15,35 +12,13 @@ import (
 func TestPair(t *testing.T) {
 	assert := assert.New(t)
 
-	validFor := 20 * 365 * 24 * time.Hour
-	keyBits := 2048
-
-	// 產生憑證
-	certPEM, keyPEM, err := GenerateSelfSignedCertRSA(validFor, keyBits)
+	http, err := NewNvHTTP("MyGameClient", "localhost")
 	if err != nil {
 		assert.Fail(err.Error())
 		return
 	}
 
-	// 產生 unique ID
-	hash := sha256.Sum256(certPEM)
-	uniqueID := strings.ToUpper(hex.EncodeToString(hash[:16]))
-
-	fmt.Println("Unique ID: " + uniqueID)
-
-	// 建立配對客戶端
-	client, err := NewPairingClient(
-		"localhost",
-		uniqueID,
-		"MyGameClient",
-		certPEM,
-		keyPEM,
-	)
-
-	if err != nil {
-		assert.Fail(err.Error())
-		return
-	}
+	client := NewPairingManager(http)
 
 	// Client 產生 PIN
 	pin := fmt.Sprintf("%04d", rand.Intn(10000))
@@ -65,10 +40,12 @@ func TestPair(t *testing.T) {
 	fmt.Println("開始配對...")
 
 	// 執行配對
-	if err := client.Pair(pin); err != nil {
-		assert.Fail(err.Error())
+	state := client.Pair(pin)
+
+	if !assert.Equal(PairStatePaired, state) {
+		fmt.Printf("配對失敗，狀態碼: %d\n", state)
 		return
 	}
 
-	fmt.Println("✓ 配對成功!")
+	fmt.Println("配對成功！")
 }
