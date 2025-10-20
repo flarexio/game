@@ -8,6 +8,8 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/pem"
 	"encoding/xml"
 	"errors"
@@ -34,6 +36,11 @@ type NvHTTP interface {
 	Sign(data []byte) ([]byte, error)
 
 	ServerInfo() (*ServerInfoResponse, error)
+
+	AppList() ([]NvApp, error)
+	LaunchApp(ctx context.Context, appID int, enableHDR bool) (string, error)
+	QuitApp(ctx context.Context) error
+
 	ExecutePairingCommand(ctx context.Context, args map[string]string) (*PairResponse, error)
 	ExecutePairingChallenge(ctx context.Context) (*PairResponse, error)
 	Unpair() error
@@ -272,8 +279,198 @@ func (h *nvHTTP) ServerInfo() (*ServerInfoResponse, error) {
 	return info, nil
 }
 
+type AppListResponse struct {
+	XMLName    xml.Name `xml:"root"`
+	StatusCode int      `xml:"status_code,attr"`
+	Apps       []NvApp  `xml:"App"`
+}
+
+type NvApp struct {
+	XMLName        xml.Name `xml:"App"`
+	IsHdrSupported int      `xml:"IsHdrSupported"`
+	Name           string   `xml:"AppTitle"`
+	ID             int      `xml:"ID"`
+}
+
+func (app *NvApp) IsHDRSupported() bool {
+	return app.IsHdrSupported == 1
+}
+
+func (app *NvApp) String() string {
+	var hdrSupport string
+	if app.IsHDRSupported() {
+		hdrSupport = "Yes"
+	} else {
+		hdrSupport = "Unknown"
+	}
+
+	return "Name: " + app.Name + "\n" +
+		"HDR Supported: " + hdrSupport + "\n" +
+		"ID: " + strconv.Itoa(app.ID) + "\n"
+}
+
+func (h *nvHTTP) AppList() ([]NvApp, error) {
+	values := url.Values{}
+	values.Add("uniqueid", h.uniqueID)
+
+	url, err := url.Parse("https://" + h.host + ":" + strconv.Itoa(DEFAULT_HTTPS_PORT) + "/applist")
+	if err != nil {
+		return nil, err
+	}
+
+	url.RawQuery = values.Encode()
+
+	resp, err := h.https.Get(url.String())
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP request failed with status: %s", resp.Status)
+	}
+
+	decoder := xml.NewDecoder(resp.Body)
+
+	var appListResp *AppListResponse
+	if err := decoder.Decode(&appListResp); err != nil {
+		return nil, err
+	}
+
+	return appListResp.Apps, nil
+}
+
+func (h *nvHTTP) LaunchApp(ctx context.Context, appID int, enableHDR bool) (string, error) {
+	values := url.Values{}
+	values.Add("uniqueid", h.uniqueID)
+	values.Add("appid", strconv.Itoa(appID))
+	values.Add("mode", "3840x2160x60")
+	values.Add("additionalStates", "1")
+	values.Add("sops", "1")
+
+	riKey := make([]byte, 16)
+	if _, err := rand.Read(riKey); err != nil {
+		return "", err
+	}
+
+	var n int32
+	if err := binary.Read(rand.Reader, binary.BigEndian, &n); err != nil {
+		return "", err
+	}
+
+	values.Add("rikey", hex.EncodeToString(riKey))
+	values.Add("rikeyid", fmt.Sprintf("%d", n))
+
+	if enableHDR {
+		values.Add("hdrMode", "1")
+		values.Add("clientHdrCapVersion", "0")
+		values.Add("clientHdrCapSupportedFlagsInUint32", "0")
+		values.Add("clientHdrCapMetaDataId", "NV_STATIC_METADATA_TYPE_1")
+		values.Add("clientHdrCapDisplayData", "0x0x0x0x0x0x0x0x0x0x0")
+	}
+
+	values.Add("localAudioPlayMode", "1")
+
+	channelCount := 2
+	channelMask := 0x3
+
+	surroundAudioInfo := channelMask<<16 | channelCount
+
+	values.Add("surroundAudioInfo", strconv.Itoa(surroundAudioInfo))
+
+	values.Add("remoteControllersBitmap", "0")
+	values.Add("gcmap", "0")
+	values.Add("gcpersist", "1")
+	// values.Add("corever", "1")
+
+	url, err := url.Parse("https://" + h.host + ":" + strconv.Itoa(DEFAULT_HTTPS_PORT) + "/launch")
+	if err != nil {
+		return "", err
+	}
+
+	url.RawQuery = values.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url.String(), nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := h.https.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP request failed with status: %s", resp.Status)
+	}
+
+	var raw struct {
+		XMLName     xml.Name `xml:"root"`
+		StatusCode  int      `xml:"status_code,attr"`
+		SessionURL  string   `xml:"sessionUrl0"`
+		GameSession int      `xml:"gamesession"`
+	}
+
+	decoder := xml.NewDecoder(resp.Body)
+	if err := decoder.Decode(&raw); err != nil {
+		return "", err
+	}
+
+	if raw.GameSession != 1 {
+		return "", errors.New("failed to launch app")
+	}
+
+	return raw.SessionURL, nil
+}
+
+func (h *nvHTTP) QuitApp(ctx context.Context) error {
+	values := url.Values{}
+	values.Add("uniqueid", h.uniqueID)
+
+	url, err := url.Parse("https://" + h.host + ":" + strconv.Itoa(DEFAULT_HTTPS_PORT) + "/cancel")
+	if err != nil {
+		return err
+	}
+
+	url.RawQuery = values.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url.String(), nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := h.https.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP request failed with status: %s", resp.Status)
+	}
+
+	var raw struct {
+		XMLName    xml.Name `xml:"root"`
+		StatusCode int      `xml:"status_code,attr"`
+		Cancel     int      `xml:"cancel"`
+	}
+
+	decoder := xml.NewDecoder(resp.Body)
+	if err := decoder.Decode(&raw); err != nil {
+		return err
+	}
+
+	if raw.Cancel != 1 {
+		return errors.New("failed to quit app")
+	}
+
+	return nil
+}
+
 type PairResponse struct {
 	XMLName                 xml.Name `xml:"root"`
+	StatusCode              int      `xml:"status_code,attr"`
 	Paired                  int      `xml:"paired"`
 	ServerCert              string   `xml:"plaincert"`
 	ServerChallengeResponse string   `xml:"challengeresponse"`
