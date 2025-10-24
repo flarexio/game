@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/pem"
 	"encoding/xml"
@@ -21,6 +20,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/flarexio/game/thirdparty/moonlight"
 )
 
 const (
@@ -46,7 +47,7 @@ type NvHTTP interface {
 	Unpair() error
 }
 
-func NewNvHTTP(uniqueID string, host string) (NvHTTP, error) {
+func NewHTTP(uniqueID string, host string) (NvHTTP, error) {
 	if uniqueID == "" {
 		uniqueID = "0123456789ABCDEF"
 	}
@@ -341,25 +342,26 @@ func (h *nvHTTP) AppList() ([]NvApp, error) {
 }
 
 func (h *nvHTTP) LaunchApp(ctx context.Context, appID int, enableHDR bool) (string, error) {
+	stream, ok := ctx.Value(CtxKeyStreamConfiguration).(*StreamConfiguration)
+	if !ok {
+		return "", errors.New("stream configuration not found in context")
+	}
+
+	ri, ok := ctx.Value(CtxKeyRemoteInputAES).(*moonlight.RemoteInputAES)
+	if !ok {
+		return "", errors.New("remote input AES not found in context")
+	}
+
 	values := url.Values{}
 	values.Add("uniqueid", h.uniqueID)
 	values.Add("appid", strconv.Itoa(appID))
-	values.Add("mode", "3840x2160x60")
+
+	values.Add("mode", fmt.Sprintf("%dx%dx%d", stream.Width, stream.Height, stream.LaunchRefreshRate))
 	values.Add("additionalStates", "1")
 	values.Add("sops", "1")
 
-	riKey := make([]byte, 16)
-	if _, err := rand.Read(riKey); err != nil {
-		return "", err
-	}
-
-	var n int32
-	if err := binary.Read(rand.Reader, binary.BigEndian, &n); err != nil {
-		return "", err
-	}
-
-	values.Add("rikey", hex.EncodeToString(riKey))
-	values.Add("rikeyid", fmt.Sprintf("%d", n))
+	values.Add("rikey", hex.EncodeToString(ri.Key[:]))
+	values.Add("rikeyid", fmt.Sprintf("%d", ri.IV[:]))
 
 	if enableHDR {
 		values.Add("hdrMode", "1")
@@ -369,19 +371,23 @@ func (h *nvHTTP) LaunchApp(ctx context.Context, appID int, enableHDR bool) (stri
 		values.Add("clientHdrCapDisplayData", "0x0x0x0x0x0x0x0x0x0x0")
 	}
 
-	values.Add("localAudioPlayMode", "1")
+	if stream.PlayLocalAudio {
+		values.Add("localAudioPlayMode", "1")
+	} else {
+		values.Add("localAudioPlayMode", "0")
+	}
 
-	channelCount := 2
-	channelMask := 0x3
+	values.Add("surroundAudioInfo", strconv.Itoa(stream.AudioConfiguration.SurroundAudioInfo()))
+	values.Add("remoteControllersBitmap", strconv.Itoa(stream.AttachedGamepadMask))
+	values.Add("gcmap", strconv.Itoa(stream.AttachedGamepadMask))
 
-	surroundAudioInfo := channelMask<<16 | channelCount
+	if stream.PersistGamepadAfterDisconnect {
+		values.Add("gcpersist", "1")
+	} else {
+		values.Add("gcpersist", "0")
+	}
 
-	values.Add("surroundAudioInfo", strconv.Itoa(surroundAudioInfo))
-
-	values.Add("remoteControllersBitmap", "0")
-	values.Add("gcmap", "0")
-	values.Add("gcpersist", "1")
-	// values.Add("corever", "1")
+	values.Add("corever", "1")
 
 	url, err := url.Parse("https://" + h.host + ":" + strconv.Itoa(DEFAULT_HTTPS_PORT) + "/launch")
 	if err != nil {

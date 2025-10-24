@@ -6,73 +6,43 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 )
 
-type ContextKey string
-
-const (
-	CtxKeyCSeq          ContextKey = "CSeq"
-	CtxKeyClientVersion ContextKey = "ClientVersion"
-	CtxKeySessionID     ContextKey = "SessionID"
-)
-
-// RTSPClient represents an RTSP client connection
-type RTSPClient struct {
-	conn          net.Conn
-	reader        *bufio.Reader
-	rtspURL       string
-	host          string
-	port          int
-	sessionID     string
-	seqNum        int
-	clientVersion string
-}
-
 // NewRTSPClient creates a new RTSP client and connects to the server
 func NewRTSPClient(rtspURL string) (*RTSPClient, error) {
-	// Parse RTSP URL: rtsp://localhost:48010 or rtsp://localhost:48010?sessionid=xxxxx
-	if !strings.HasPrefix(rtspURL, "rtsp://") {
-		return nil, fmt.Errorf("invalid RTSP URL: %s", rtspURL)
-	}
-
-	urlWithoutScheme := strings.TrimPrefix(rtspURL, "rtsp://")
-
-	// Split host:port and query params
-	hostPortAndQuery := strings.Split(urlWithoutScheme, "?")
-	hostPort := hostPortAndQuery[0]
-
-	parts := strings.Split(hostPort, ":")
-
-	host := parts[0]
-	port := 48010 // default RTSP port
-	if len(parts) > 1 {
-		var err error
-		port, err = strconv.Atoi(parts[1])
-		if err != nil {
-			return nil, fmt.Errorf("invalid port: %s", parts[1])
-		}
-	}
-
-	// Connect to RTSP server
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), 5*time.Second)
+	url, err := url.Parse(rtspURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to RTSP server: %w", err)
+		return nil, err
+	}
+
+	conn, err := net.DialTimeout("tcp", url.Host, 5000*time.Millisecond)
+	if err != nil {
+		return nil, err
 	}
 
 	client := &RTSPClient{
+		url:           url,
 		conn:          conn,
 		reader:        bufio.NewReader(conn),
-		rtspURL:       rtspURL,
-		host:          host,
-		port:          port,
 		seqNum:        1,
-		clientVersion: "13", // Match Moonlight's client version
+		clientVersion: "14",
 	}
 
 	return client, nil
+}
+
+// RTSPClient represents an RTSP client connection
+type RTSPClient struct {
+	url           *url.URL
+	conn          net.Conn
+	reader        *bufio.Reader
+	sessionID     string
+	seqNum        int
+	clientVersion string
 }
 
 func (c *RTSPClient) SetSessionID(sessionID string) {
@@ -138,18 +108,9 @@ func (req *RTSPRequest) Headers(ctx context.Context) (string, error) {
 		sb.WriteString(fmt.Sprintf("%s: %s\r\n", key, value))
 	}
 
+	sb.WriteString("\r\n")
+
 	return sb.String(), nil
-}
-
-func (req *RTSPRequest) Payload(ctx context.Context) (string, error) {
-	request, err := req.Headers(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	request += "\r\n"
-
-	return request, nil
 }
 
 func (c *RTSPClient) doRequest(req *RTSPRequest) (*RTSPResponse, error) {
@@ -159,7 +120,7 @@ func (c *RTSPClient) doRequest(req *RTSPRequest) (*RTSPResponse, error) {
 	ctx = context.WithValue(ctx, CtxKeyClientVersion, c.clientVersion)
 	ctx = context.WithValue(ctx, CtxKeySessionID, c.sessionID)
 
-	request, err := req.Payload(ctx)
+	request, err := req.Headers(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -255,24 +216,24 @@ func (c *RTSPClient) readResponse() (*RTSPResponse, error) {
 }
 
 // Options sends an OPTIONS request
-func (c *RTSPClient) Options() error {
-	req := NewRTSPRequest("OPTIONS", "*")
+func (c *RTSPClient) Options() (*RTSPResponse, error) {
+	req := NewRTSPRequest("OPTIONS", c.url.String())
 
 	resp, err := c.doRequest(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("OPTIONS failed with status: %d %s", resp.StatusCode, resp.Status)
+		return nil, fmt.Errorf("OPTIONS failed with status: %d %s", resp.StatusCode, resp.Status)
 	}
 
-	return nil
+	return resp, nil
 }
 
 // Describe sends a DESCRIBE request to get stream information
 func (c *RTSPClient) Describe() (*RTSPResponse, error) {
-	req := NewRTSPRequest("DESCRIBE", "*")
+	req := NewRTSPRequest("DESCRIBE", c.url.String())
 	req.AddHeader("Accept", "application/sdp")
 	req.AddHeader("If-Modified-Since", "Thu, 01 Jan 1970 00:00:00 GMT")
 
@@ -310,6 +271,7 @@ func (c *RTSPClient) Setup(streamID string) (*RTSPResponse, error) {
 func (c *RTSPClient) Announce(sdpBody string) (*RTSPResponse, error) {
 	req := NewRTSPRequest("ANNOUNCE", "streamid=control/13/0")
 	req.AddHeader("Content-Type", "application/sdp")
+	req.AddHeader("Content-length", strconv.Itoa(len(sdpBody)))
 	req.SetBody(sdpBody)
 
 	resp, err := c.doRequest(req)
@@ -324,23 +286,20 @@ func (c *RTSPClient) Announce(sdpBody string) (*RTSPResponse, error) {
 	return resp, nil
 }
 
-// // Play sends a PLAY request to start streaming
-// func (c *RTSPClient) Play() error {
-// 	resp, err := c.sendRequest("PLAY", "streamid=video", "")
-// 	if err != nil {
-// 		return err
-// 	}
+// Play sends a PLAY request to start streaming
+func (c *RTSPClient) Play() (*RTSPResponse, error) {
+	req := NewRTSPRequest("PLAY", "/")
 
-// 	if resp.StatusCode != 200 {
-// 		return fmt.Errorf("PLAY failed with status: %d %s", resp.StatusCode, resp.Status)
-// 	}
+	resp, err := c.doRequest(req)
+	if err != nil {
+		return nil, err
+	}
 
-// 	return nil
-// }
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("PLAY failed with status: %d %s", resp.StatusCode, resp.Status)
+	}
 
-// GetSessionID returns the current session ID
-func (c *RTSPClient) GetSessionID() string {
-	return c.sessionID
+	return resp, nil
 }
 
 // Close closes the RTSP connection

@@ -13,7 +13,7 @@ import (
 func TestServerInfo(t *testing.T) {
 	assert := assert.New(t)
 
-	http, err := NewNvHTTP("MyGameClient", "localhost")
+	http, err := NewHTTP("MyGameClient", "localhost")
 	if err != nil {
 		assert.Fail(err.Error())
 		return
@@ -38,7 +38,7 @@ func TestServerInfo(t *testing.T) {
 func TestAppList(t *testing.T) {
 	assert := assert.New(t)
 
-	http, err := NewNvHTTP("MyGameClient", "localhost")
+	http, err := NewHTTP("MyGameClient", "localhost")
 	if err != nil {
 		assert.Fail(err.Error())
 		return
@@ -60,7 +60,7 @@ func TestAppList(t *testing.T) {
 func TestLaunchApp(t *testing.T) {
 	assert := assert.New(t)
 
-	http, err := NewNvHTTP("MyGameClient", "localhost")
+	http, err := NewHTTP("MyGameClient", "localhost")
 	if err != nil {
 		assert.Fail(err.Error())
 		return
@@ -100,7 +100,7 @@ func TestLaunchApp(t *testing.T) {
 func TestQuitApp(t *testing.T) {
 	assert := assert.New(t)
 
-	http, err := NewNvHTTP("MyGameClient", "localhost")
+	http, err := NewHTTP("MyGameClient", "localhost")
 	if err != nil {
 		assert.Fail(err.Error())
 		return

@@ -12,7 +12,7 @@ import (
 func TestPair(t *testing.T) {
 	assert := assert.New(t)
 
-	http, err := NewNvHTTP("MyGameClient", "localhost")
+	http, err := NewHTTP("MyGameClient", "localhost")
 	if err != nil {
 		assert.Fail(err.Error())
 		return

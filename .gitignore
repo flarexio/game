@@ -1,0 +1,10 @@
+# Build outputs
+*.exe
+*.dll
+*.a
+*.so
+*.dylib
+
+# Go workspace
+*.test
+*.out
