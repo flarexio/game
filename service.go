@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -219,12 +220,12 @@ func (svc *service) listen(ctx context.Context, track Track) {
 	}
 }
 
-func (svc *service) trackHandler(ctx context.Context, conn net.Conn, track Track) error {
+func (svc *service) trackHandler(ctx context.Context, r io.ReadCloser, track Track) error {
 	switch track.Codec() {
 	case CodecH264:
-		go svc.h264Handler(ctx, conn, track)
+		go svc.h264Handler(ctx, r, track)
 	case CodecOpus:
-		go svc.oggHandler(ctx, conn, track)
+		go svc.oggHandler(ctx, r, track)
 	default:
 		return errors.New("codec unsupported")
 	}
@@ -232,7 +233,7 @@ func (svc *service) trackHandler(ctx context.Context, conn net.Conn, track Track
 	return nil
 }
 
-func (svc *service) h264Handler(ctx context.Context, conn net.Conn, video Track) {
+func (svc *service) h264Handler(ctx context.Context, r io.ReadCloser, video Track) {
 	log, ok := ctx.Value(model.Logger).(*zap.Logger)
 	if !ok {
 		log = svc.log
@@ -256,7 +257,7 @@ func (svc *service) h264Handler(ctx context.Context, conn net.Conn, video Track)
 		return
 	}
 
-	reader, err := h264reader.NewReader(conn)
+	reader, err := h264reader.NewReader(r)
 	if err != nil {
 		log.Error(err.Error())
 		return
@@ -267,7 +268,7 @@ func (svc *service) h264Handler(ctx context.Context, conn net.Conn, video Track)
 	for {
 		select {
 		case <-ctx.Done():
-			conn.Close()
+			r.Close()
 			log.Info("done")
 			return
 
@@ -286,7 +287,7 @@ func (svc *service) h264Handler(ctx context.Context, conn net.Conn, video Track)
 	}
 }
 
-func (svc *service) oggHandler(ctx context.Context, conn net.Conn, audio Track) {
+func (svc *service) oggHandler(ctx context.Context, r io.ReadCloser, audio Track) {
 	log, ok := ctx.Value(model.Logger).(*zap.Logger)
 	if !ok {
 		log = svc.log
@@ -310,7 +311,7 @@ func (svc *service) oggHandler(ctx context.Context, conn net.Conn, audio Track) 
 		return
 	}
 
-	reader, _, err := oggreader.NewWith(conn)
+	reader, _, err := oggreader.NewWith(r)
 	if err != nil {
 		log.Error(err.Error())
 		return
@@ -322,7 +323,7 @@ func (svc *service) oggHandler(ctx context.Context, conn net.Conn, audio Track) 
 	for {
 		select {
 		case <-ctx.Done():
-			conn.Close()
+			r.Close()
 			log.Info("done")
 			return
 

@@ -19,7 +19,7 @@ func StartConnection(serverInfo ServerInformation, streamConfig StreamConfigurat
 
 	rc := C.LiStartConnection(
 		cServerInfo, cStreamConfig,
-		nil, nil, nil,
+		clCallbacks, drCallbacks, arCallbacks,
 		nil, 0,
 		nil, 0,
 	)

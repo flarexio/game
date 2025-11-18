@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -66,11 +67,18 @@ func TestStartConnection(t *testing.T) {
 		return
 	}
 
+	vr := NewVideoReader()
+	ar := NewAudioReader()
+
+	moonlight.SetupCallbacks(conn, vr, ar)
+
 	ctx := context.Background()
 	if err := conn.StartApp(ctx, app); err != nil {
 		assert.Fail(err.Error())
 		return
 	}
+
+	time.Sleep(1 * time.Minute)
 }
 
 func TestStopConnection(t *testing.T) {

@@ -10,6 +10,7 @@ package moonlight
 import "C"
 import (
 	"crypto/rand"
+	"errors"
 	"unsafe"
 )
 
@@ -54,6 +55,33 @@ const (
 	ENCFLG_AUDIO int = 0x00000001
 	ENCFLG_VIDEO int = 0x00000002
 	ENCFLG_ALL   int = 0xFFFFFFFF
+
+	// This callback provides Annex B formatted elementary stream data to the
+	// decoder. If the decoder is unable to process the submitted data for some reason,
+	// it must return DR_NEED_IDR to generate a keyframe.
+	DR_OK       int = 0
+	DR_NEED_IDR int = -1
+
+	// These identify codec configuration data in the buffer lists
+	// of frames identified as IDR frames for H.264 and HEVC formats.
+	// For other codecs, all data is marked as BUFFER_TYPE_PICDATA.
+	BUFFER_TYPE_PICDATA int = 0x00
+	BUFFER_TYPE_SPS     int = 0x01
+	BUFFER_TYPE_PPS     int = 0x02
+	BUFFER_TYPE_VPS     int = 0x03
+
+	// This is a standard frame which references the IDR frame and
+	// previous P-frames.
+	FRAME_TYPE_PFRAME int = 0x00
+
+	// This is a key frame.
+	//
+	// For H.264 and HEVC, this means the frame contains SPS, PPS, and VPS (HEVC only) NALUs
+	// as the first buffers in the list. The I-frame data follows immediately
+	// after the codec configuration NALUs.
+	//
+	// For other codecs, any configuration data is not split into separate buffers.
+	FRAME_TYPE_IDR int = 0x01
 )
 
 var (
@@ -62,6 +90,17 @@ var (
 	AUDIO_CONFIGURATION_51_SURROUND = AudioConfiguration{6, 0x3F}
 	AUDIO_CONFIGURATION_71_SURROUND = AudioConfiguration{8, 0x63F}
 )
+
+func NewAudioConfiguration(i int) (AudioConfiguration, error) {
+	if i&0xFF != 0xCA {
+		return AudioConfiguration{}, errors.New("invalid audio configuration")
+	}
+
+	return AudioConfiguration{
+		ChannelCount: (i >> 8) & 0xFF,
+		ChannelMask:  (i >> 16) & 0xFFFF,
+	}, nil
+}
 
 type AudioConfiguration struct {
 	ChannelCount int
