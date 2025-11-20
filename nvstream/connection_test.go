@@ -67,10 +67,10 @@ func TestStartConnection(t *testing.T) {
 		return
 	}
 
-	vr := NewVideoReader()
-	ar := NewAudioReader()
+	vs := NewVideoStream()
+	as := NewAudioStream()
 
-	moonlight.SetupCallbacks(conn, vr, ar)
+	moonlight.SetupCallbacks(conn, vs, as)
 
 	ctx := context.Background()
 	if err := conn.StartApp(ctx, app); err != nil {

@@ -137,15 +137,17 @@ func (conn *nvConnection) StopApp(ctx context.Context) error {
 }
 
 func (conn *nvConnection) StageStarting(stage int) {
-	conn.log.Info("connection stage starting", zap.Int("stage", stage))
+	conn.log.Info("connection starting", zap.Int("stage", stage))
 }
 
 func (conn *nvConnection) StageComplete(stage int) {
-	conn.log.Info("connection stage complete", zap.Int("stage", stage))
+	conn.log.Info("connection complete", zap.Int("stage", stage))
 }
 
 func (conn *nvConnection) StageFailed(stage int, errorCode int) {
-	conn.log.Error("connection stage failed", zap.Int("stage", stage), zap.Int("error_code", errorCode))
+	conn.log.Error("connection failed",
+		zap.Int("stage", stage),
+		zap.Int("error_code", errorCode))
 }
 
 func (conn *nvConnection) ConnectionStarted() {
@@ -163,9 +165,9 @@ func (conn *nvConnection) LogMessage(format string, args ...interface{}) {
 
 func (conn *nvConnection) Rumble(controllerNumber, lowFreqMotor, highFreqMotor uint16) {
 	conn.log.Debug("rumble on gamepad",
-		zap.Uint16("controller_number", controllerNumber),
-		zap.String("low_freq_motor", fmt.Sprintf("%04x", lowFreqMotor)),
-		zap.String("high_freq_motor", fmt.Sprintf("%04x", highFreqMotor)))
+		zap.Uint16("controller", controllerNumber),
+		zap.String("low_freq", fmt.Sprintf("%04x", lowFreqMotor)),
+		zap.String("high_freq", fmt.Sprintf("%04x", highFreqMotor)))
 
 	// TODO: implement rumble
 }
@@ -175,21 +177,23 @@ func (conn *nvConnection) ConnectionStatusUpdate(connectionStatus int) {
 }
 
 func (conn *nvConnection) SetHDRMode(hdrEnabled bool) {
-	conn.log.Info("set HDR mode", zap.Bool("enabled", hdrEnabled))
+	conn.log.Info("set hdr mode", zap.Bool("enabled", hdrEnabled))
+
 	// TODO: decoderRenderer.SetHDRMode(hdrEnabled)
 }
 
 func (conn *nvConnection) RumbleTriggers(controllerNumber, leftTriggerMotor, rightTriggerMotor uint16) {
 	conn.log.Debug("rumble triggers on gamepad",
-		zap.Uint16("controller_number", controllerNumber),
-		zap.String("left_trigger_motor", fmt.Sprintf("%04x", leftTriggerMotor)),
-		zap.String("right_trigger_motor", fmt.Sprintf("%04x", rightTriggerMotor)))
+		zap.Uint16("controller", controllerNumber),
+		zap.String("left_trigger", fmt.Sprintf("%04x", leftTriggerMotor)),
+		zap.String("right_trigger", fmt.Sprintf("%04x", rightTriggerMotor)))
+
 	// TODO: implement rumble triggers
 }
 
 func (conn *nvConnection) SetMotionEventState(controllerNumber uint16, motionType uint8, reportRateHz uint16) {
 	conn.log.Info("set motion event state",
-		zap.Uint16("controller_number", controllerNumber),
+		zap.Uint16("controller", controllerNumber),
 		zap.Uint8("motion_type", motionType),
 		zap.Uint16("report_rate_hz", reportRateHz))
 
@@ -197,8 +201,8 @@ func (conn *nvConnection) SetMotionEventState(controllerNumber uint16, motionTyp
 }
 
 func (conn *nvConnection) SetControllerLED(controllerNumber uint16, r, g, b uint8) {
-	conn.log.Info("set controller LED color",
-		zap.Uint16("controller_number", controllerNumber),
+	conn.log.Info("set controller led color",
+		zap.Uint16("controller", controllerNumber),
 		zap.Uint8("r", r),
 		zap.Uint8("g", g),
 		zap.Uint8("b", b))

@@ -2,23 +2,35 @@ package nvstream
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
 
+	"go.uber.org/zap"
+
 	"github.com/flarexio/game/thirdparty/moonlight"
 )
 
-type VideoReader interface {
+type VideoStream interface {
 	moonlight.VideoDecoderRenderer
 	io.ReadCloser
 }
 
-func NewVideoReader() VideoReader {
-	return &videoReader{}
+func NewVideoStream() VideoStream {
+	log := zap.L().With(
+		zap.String("component", "nvstream.video_stream"),
+	)
+
+	return &videoStream{
+		log:    log,
+		stream: new(bytes.Buffer),
+	}
 }
 
-type videoReader struct {
+type videoStream struct {
+	log *zap.Logger
+
 	initialWidth  int
 	initialHeight int
 	videoFormat   int
@@ -28,88 +40,98 @@ type videoReader struct {
 	sync.Mutex
 }
 
-func (vr *videoReader) Setup(format, width, height, redrawRate int) int {
-	fmt.Printf("Setup called with format=%d, %dx%d@%d\n", format, width, height, redrawRate)
+func (vs *videoStream) Setup(format, width, height, redrawRate int) int {
+	resolution := fmt.Sprintf("%dx%d@%d", width, height, redrawRate)
 
-	vr.initialWidth = width
-	vr.initialHeight = height
-	vr.videoFormat = format
-	vr.refreshRate = redrawRate
+	log := vs.log.With(
+		zap.String("action", "setup"),
+		zap.String("resolution", resolution),
+		zap.Int("format", format),
+	)
 
-	if rc := vr.initializeDecoder(); rc != 0 {
-		return rc
-	}
+	vs.initialWidth = width
+	vs.initialHeight = height
+	vs.videoFormat = format
+	vs.refreshRate = redrawRate
 
-	vr.stream = new(bytes.Buffer)
-	return 0
-}
-
-func (vr *videoReader) initializeDecoder() int {
+	var mimeType string
 	switch {
-	case (vr.videoFormat & moonlight.VIDEO_FORMAT_MASK_H264) != 0:
-		fmt.Println("Initializing H.264 decoder")
+	case (vs.videoFormat & moonlight.VIDEO_FORMAT_MASK_H264) != 0:
+		mimeType = "video/avc"
 
-		if vr.initialWidth > 4096 || vr.initialHeight > 4096 {
-			fmt.Println("Error: Resolution too high for H.264 decoder")
+		if vs.initialWidth > 4096 || vs.initialHeight > 4096 {
+			err := errors.New("resolution too high for AVC decoder")
+			log.Error("failed to setup video stream", zap.Error(err))
 			return -1
 		}
 
-	case (vr.videoFormat & moonlight.VIDEO_FORMAT_MASK_H265) != 0:
-		fmt.Println("Initializing H.265 decoder")
+	case (vs.videoFormat & moonlight.VIDEO_FORMAT_MASK_H265) != 0:
+		mimeType = "video/hevc"
 
-	case (vr.videoFormat & moonlight.VIDEO_FORMAT_MASK_AV1) != 0:
-		fmt.Println("Initializing AV1 decoder")
+	case (vs.videoFormat & moonlight.VIDEO_FORMAT_MASK_AV1) != 0:
+		mimeType = "video/av01"
 
 	default:
-		fmt.Println("Error: Unsupported video format")
+		err := errors.New("unsupported video format")
+		log.Error("failed to setup video stream", zap.Error(err))
 		return -3
 	}
 
+	log.Info("setup complete", zap.String("mime", mimeType))
 	return 0
 }
 
-func (vr *videoReader) Start() {
-	fmt.Println("Start called")
+func (vs *videoStream) Start() {
+	vs.log.Info("video stream started", zap.String("action", "start"))
 }
 
-func (vr *videoReader) Stop() {
-	fmt.Println("Stop called")
+func (vs *videoStream) Stop() {
+	vs.log.Info("video stream stopped", zap.String("action", "stop"))
 }
 
-func (vr *videoReader) Cleanup() {
-	fmt.Println("Cleanup called")
+func (vs *videoStream) Cleanup() {
+	vs.Lock()
+	vs.stream.Reset()
+	vs.Unlock()
+
+	vs.log.Info("video stream cleaned up", zap.String("action", "cleanup"))
 }
 
-func (vr *videoReader) SubmitDecodeUnit(decodeUnit *moonlight.DecodeUnit) int {
+func (vs *videoStream) SubmitDecodeUnit(decodeUnit *moonlight.DecodeUnit) int {
+	vs.Lock()
+	defer vs.Unlock()
+
 	for currentEntry := decodeUnit.BufferList; currentEntry != nil; currentEntry = currentEntry.Next {
 		length := currentEntry.Length
 		if length == 0 {
 			continue
 		}
 
-		vr.Lock()
-		vr.stream.Write(currentEntry.Data[:length])
-		vr.Unlock()
+		vs.stream.Write(currentEntry.Data[:length])
 	}
 
 	return moonlight.DR_OK
 }
 
-func (vr *videoReader) Capabilities() int {
+func (vs *videoStream) Capabilities() int {
+	vs.log.Info("video stream capabilities requested")
 	return 0
 }
 
-func (vr *videoReader) Read(p []byte) (n int, err error) {
-	vr.Lock()
-	defer vr.Unlock()
+func (vs *videoStream) Read(p []byte) (n int, err error) {
+	vs.Lock()
+	defer vs.Unlock()
 
-	if vr.stream.Len() == 0 {
-		return 0, io.EOF
+	if vs.stream.Len() == 0 {
+		return 0, nil
 	}
 
-	return vr.stream.Read(p)
+	return vs.stream.Read(p)
 }
 
-func (vr *videoReader) Close() error {
+func (vs *videoStream) Close() error {
+	vs.Cleanup()
+
+	vs.log.Info("video stream closed", zap.String("action", "close"))
 	return nil
 }
