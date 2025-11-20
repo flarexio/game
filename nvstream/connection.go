@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"go.uber.org/zap"
 
@@ -160,6 +161,8 @@ func (conn *nvConnection) ConnectionTerminated(errorCode int) {
 
 func (conn *nvConnection) LogMessage(format string, args ...interface{}) {
 	s := fmt.Sprintf(format, args...)
+	s = strings.TrimSpace(s)
+
 	conn.log.Info("nvstream", zap.String("message", s))
 }
 

@@ -75,52 +75,42 @@ func (provider ICEProvider) String() string {
 }
 
 type Stream struct {
-	Name    string
-	Origins []*Origin
-}
-
-func (stream *Stream) VideoTrack(index ...int) (webrtc.TrackLocal, error) {
-	i := 0
-	if len(index) > 0 {
-		i = index[0]
-	}
-
-	if i >= len(stream.Origins) {
-		return nil, errors.New("track not found")
-	}
-
-	videoTrack := stream.Origins[i].Video
-
-	if videoTrack == nil {
-		return nil, errors.New("track not found")
-	}
-
-	return videoTrack.track, nil
-}
-
-func (stream *Stream) AudioTrack(index ...int) (webrtc.TrackLocal, error) {
-	i := 0
-	if len(index) > 0 {
-		i = index[0]
-	}
-
-	if i >= len(stream.Origins) {
-		return nil, errors.New("track not found")
-	}
-
-	audioTrack := stream.Origins[i].Audio
-
-	if audioTrack == nil {
-		return nil, errors.New("track not found")
-	}
-
-	return audioTrack.track, nil
-}
-
-type Origin struct {
+	Name      string
 	Transport Transport
+	Address   *url.URL
 	Video     *VideoTrack
 	Audio     *AudioTrack
+}
+
+func (s *Stream) UnmarshalYAML(value *yaml.Node) error {
+	var raw struct {
+		Name      string
+		Transport Transport
+		Address   string
+		Video     *VideoTrack
+		Audio     *AudioTrack
+	}
+
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+
+	s.Name = raw.Name
+	s.Transport = raw.Transport
+
+	if raw.Address != "" {
+		url, err := url.Parse(raw.Address)
+		if err != nil {
+			return err
+		}
+
+		s.Address = url
+	}
+
+	s.Video = raw.Video
+	s.Audio = raw.Audio
+
+	return nil
 }
 
 type Track interface {
@@ -157,12 +147,14 @@ func (video *VideoTrack) UnmarshalYAML(value *yaml.Node) error {
 		return err
 	}
 
-	address, err := url.Parse(raw.Address)
-	if err != nil {
-		return err
-	}
+	if raw.Address != "" {
+		url, err := url.Parse(raw.Address)
+		if err != nil {
+			return err
+		}
 
-	video.address = address
+		video.address = url
+	}
 
 	mimeType := raw.Codec.MimeType()
 	if mimeType == "unknown" {
@@ -198,7 +190,7 @@ func (audio *AudioTrack) Track() webrtc.TrackLocal {
 	return audio.track
 }
 
-func (track *AudioTrack) UnmarshalYAML(value *yaml.Node) error {
+func (audio *AudioTrack) UnmarshalYAML(value *yaml.Node) error {
 	var raw struct {
 		Address string
 		Codec   Codec
@@ -208,12 +200,14 @@ func (track *AudioTrack) UnmarshalYAML(value *yaml.Node) error {
 		return err
 	}
 
-	address, err := url.Parse(raw.Address)
-	if err != nil {
-		return err
-	}
+	if raw.Address != "" {
+		url, err := url.Parse(raw.Address)
+		if err != nil {
+			return err
+		}
 
-	track.address = address
+		audio.address = url
+	}
 
 	mimeType := raw.Codec.MimeType()
 	if mimeType == "unknown" {
@@ -226,7 +220,7 @@ func (track *AudioTrack) UnmarshalYAML(value *yaml.Node) error {
 		}
 	}
 
-	track.codec = raw.Codec
+	audio.codec = raw.Codec
 
 	return nil
 }
@@ -239,6 +233,7 @@ const (
 	TransportRTSP Transport = "rtsp"
 	TransportRTMP Transport = "rtmp"
 	TransportHTTP Transport = "http"
+	TransportNV   Transport = "nvstream"
 )
 
 type Codec string

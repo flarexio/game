@@ -9,7 +9,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -80,62 +79,57 @@ type service struct {
 func (svc *service) buildStreams(ctx context.Context, streams []*Stream) error {
 	streamMap := make(map[string]*Stream)
 	for _, stream := range streams {
-		for i, origin := range stream.Origins {
-			if video := origin.Video; video != nil {
+		switch stream.Transport {
+		case TransportRaw:
+			if video := stream.Video; video != nil {
 				if video.Codec() == CodecNone {
-					continue
+					return errors.New("video codec not specified")
 				}
 
-				trackID := "video_" + strconv.Itoa(i)
+				trackID := stream.Name + "_video"
 
-				switch origin.Transport {
-				case TransportRaw:
-					track, err := webrtc.NewTrackLocalStaticSample(
-						webrtc.RTPCodecCapability{
-							MimeType: video.Codec().MimeType(),
-						}, trackID, stream.Name,
-					)
+				track, err := webrtc.NewTrackLocalStaticSample(
+					webrtc.RTPCodecCapability{
+						MimeType: video.Codec().MimeType(),
+					}, trackID, stream.Name,
+				)
 
-					if err != nil {
-						return err
-					}
-
-					video.track = track
-
-					go svc.listen(ctx, video)
-
-				default:
-					return errors.New("transport unsupported")
+				if err != nil {
+					return err
 				}
+
+				video.track = track
+
+				go svc.listen(ctx, video)
 			}
 
-			if audio := origin.Audio; audio != nil {
+			if audio := stream.Audio; audio != nil {
 				if audio.Codec() == CodecNone {
-					continue
+					return errors.New("audio codec not specified")
 				}
 
-				trackID := "audio_" + strconv.Itoa(i)
+				trackID := stream.Name + "_audio"
 
-				switch origin.Transport {
-				case TransportRaw:
-					track, err := webrtc.NewTrackLocalStaticSample(
-						webrtc.RTPCodecCapability{
-							MimeType: audio.Codec().MimeType(),
-						}, trackID, stream.Name,
-					)
+				track, err := webrtc.NewTrackLocalStaticSample(
+					webrtc.RTPCodecCapability{
+						MimeType: audio.Codec().MimeType(),
+					}, trackID, stream.Name,
+				)
 
-					if err != nil {
-						return err
-					}
-
-					audio.track = track
-
-					go svc.listen(ctx, audio)
-
-				default:
-					return errors.New("transport unsupported")
+				if err != nil {
+					return err
 				}
+
+				audio.track = track
+
+				go svc.listen(ctx, audio)
 			}
+
+		case TransportNV:
+			// TODO: implement NVStream transport
+
+		default:
+			return errors.New("transport unsupported")
 		}
 
 		streamMap[stream.Name] = stream
@@ -513,36 +507,27 @@ func (svc *service) AcceptPeer(offer webrtc.SessionDescription, reply string) (*
 
 	peer.sub = sub
 
-	{
-		stream, err := svc.FindStream("stream0")
-		if err != nil {
-			return nil, err
-		}
-
-		videoTrack, err := stream.VideoTrack()
-		if err != nil {
-			return nil, err
-		}
-
-		if _, err := conn.AddTrack(videoTrack); err != nil {
-			return nil, err
-		}
+	stream, err := svc.FindStream("stream")
+	if err != nil {
+		return nil, err
 	}
 
-	{
-		stream, err := svc.FindStream("stream1")
-		if err != nil {
-			return nil, err
-		}
+	videoTrack := stream.Video.Track()
+	if videoTrack == nil {
+		return nil, errors.New("video track not found")
+	}
 
-		audioTrack, err := stream.AudioTrack()
-		if err != nil {
-			return nil, err
-		}
+	if _, err := conn.AddTrack(videoTrack); err != nil {
+		return nil, err
+	}
 
-		if _, err := conn.AddTrack(audioTrack); err != nil {
-			return nil, err
-		}
+	audioTrack := stream.Audio.Track()
+	if audioTrack == nil {
+		return nil, errors.New("audio track not found")
+	}
+
+	if _, err := conn.AddTrack(audioTrack); err != nil {
+		return nil, err
 	}
 
 	if err := conn.SetRemoteDescription(offer); err != nil {

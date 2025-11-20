@@ -9,15 +9,18 @@ webrtc:
     token: ...
 
 streams:
-- name: stream0
-  origins:
-  - transport: raw
-    video:
-      address: unix:///tmp/stream/video.sock
-      codec: h264
-- name: stream1
-  origins:
-  - transport: raw
-    audio:
-      address: unix:///tmp/stream/audio.sock
-      codec: opus
+- name: gamestream
+  transport: nvstream
+  address: https://localhost:47984
+  video: 
+    codec: h264
+  audio: 
+    codec: opus
+- name: stream
+  transport: raw
+  video:
+    codec: h264
+    address: unix:///tmp/stream/video.sock
+  audio:
+    codec: opus
+    address: unix:///tmp/stream/audio.sock

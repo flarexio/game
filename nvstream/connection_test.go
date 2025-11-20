@@ -7,12 +7,22 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 
 	"github.com/flarexio/game/thirdparty/moonlight"
 )
 
 func TestStartConnection(t *testing.T) {
 	assert := assert.New(t)
+
+	log, err := zap.NewDevelopment()
+	if err != nil {
+		assert.Fail(err.Error())
+		return
+	}
+	zap.ReplaceGlobals(log)
+
+	defer log.Sync()
 
 	http, err := NewHTTP("MyGameClient", "localhost")
 	if err != nil {

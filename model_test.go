@@ -27,19 +27,27 @@ func TestConfig(t *testing.T) {
 	assert.Len(cfg.WebRTC.ICEServers, 3)
 	assert.Equal(Google, cfg.WebRTC.ICEServers[0].Provider)
 
-	assert.Len(cfg.Streams, 1)
+	assert.Len(cfg.Streams, 2)
 
-	stream := cfg.Streams[0]
-	assert.Equal("stream", stream.Name)
+	{
+		stream := cfg.Streams[0]
+		assert.Equal(TransportNV, stream.Transport)
+		assert.Equal("https://localhost:47984", stream.Address.String())
 
-	assert.Len(stream.Origins, 1)
+		assert.Equal(CodecH264, stream.Video.Codec())
+		assert.Equal(CodecOpus, stream.Audio.Codec())
+	}
 
-	origin := stream.Origins[0]
-	assert.NotNil(origin.Video)
+	{
+		stream := cfg.Streams[1]
+		assert.Equal(TransportRaw, stream.Transport)
 
-	video := origin.Video
-	address := video.Address()
-	assert.Equal(address.Scheme, "unix")
-	assert.Equal(address.Path, "/tmp/stream/video.sock")
-	assert.Equal(video.Codec(), CodecH264)
+		assert.Equal(CodecH264, stream.Video.Codec())
+		assert.Equal("unix", stream.Video.Address().Scheme)
+		assert.Equal("/tmp/stream/video.sock", stream.Video.Address().Path)
+
+		assert.Equal(CodecOpus, stream.Audio.Codec())
+		assert.Equal("unix", stream.Audio.Address().Scheme)
+		assert.Equal("/tmp/stream/audio.sock", stream.Audio.Address().Path)
+	}
 }

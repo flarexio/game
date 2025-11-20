@@ -280,6 +280,15 @@ func (h *nvHTTP) ServerInfo() (*ServerInfoResponse, error) {
 	return info, nil
 }
 
+func (h *nvHTTP) CurrentGame() int {
+	info, err := h.ServerInfo()
+	if err != nil {
+		return -1
+	}
+
+	return info.CurrentGame
+}
+
 type AppListResponse struct {
 	XMLName    xml.Name `xml:"root"`
 	StatusCode int      `xml:"status_code,attr"`
@@ -389,7 +398,21 @@ func (h *nvHTTP) LaunchApp(ctx context.Context, appID int, enableHDR bool) (stri
 
 	values.Add("corever", "1")
 
-	url, err := url.Parse("https://" + h.host + ":" + strconv.Itoa(DEFAULT_HTTPS_PORT) + "/launch")
+	action := "launch"
+	if currentGame := h.CurrentGame(); currentGame != 0 {
+		if appID == h.CurrentGame() {
+			action = "resume"
+		} else {
+			err := h.QuitApp(ctx)
+			if err != nil {
+				return "", err
+			}
+		}
+	}
+
+	resource := fmt.Sprintf("https://%s:%d/%s", h.host, DEFAULT_HTTPS_PORT, action)
+
+	url, err := url.Parse(resource)
 	if err != nil {
 		return "", err
 	}
@@ -416,6 +439,7 @@ func (h *nvHTTP) LaunchApp(ctx context.Context, appID int, enableHDR bool) (stri
 		StatusCode  int      `xml:"status_code,attr"`
 		SessionURL  string   `xml:"sessionUrl0"`
 		GameSession int      `xml:"gamesession"`
+		Resume      int      `xml:"resume"`
 	}
 
 	decoder := xml.NewDecoder(resp.Body)
@@ -423,8 +447,12 @@ func (h *nvHTTP) LaunchApp(ctx context.Context, appID int, enableHDR bool) (stri
 		return "", err
 	}
 
-	if raw.GameSession != 1 {
+	if action == "launch" && raw.GameSession != 1 {
 		return "", errors.New("failed to launch app")
+	}
+
+	if action == "resume" && raw.Resume != 1 {
+		return "", errors.New("failed to resume app")
 	}
 
 	return raw.SessionURL, nil
