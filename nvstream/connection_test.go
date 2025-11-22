@@ -49,27 +49,8 @@ func TestStartConnection(t *testing.T) {
 		return
 	}
 
-	streamConfig := &StreamConfiguration{
-		App:                           app,
-		Width:                         1280,
-		Height:                        720,
-		RefreshRate:                   60,
-		LaunchRefreshRate:             60,
-		ClientRefreshRateX100:         6000,
-		Bitrate:                       1024,
-		SOPS:                          true,
-		EnableAdaptiveResolution:      false,
-		PlayLocalAudio:                false,
-		MaxPacketSize:                 1392,
-		Remote:                        moonlight.STREAM_CFG_AUTO,
-		AudioConfiguration:            moonlight.AUDIO_CONFIGURATION_STEREO,
-		SupportedVideoFormats:         moonlight.VIDEO_FORMAT_H264,
-		AttachedGamepadMask:           0,
-		EncryptionFlags:               moonlight.ENCFLG_ALL,
-		ColorRange:                    moonlight.COLOR_RANGE_LIMITED,
-		ColorSpace:                    moonlight.COLORSPACE_REC_601,
-		PersistGamepadAfterDisconnect: false,
-	}
+	streamConfig := DefaultStreamConfiguration()
+	streamConfig.App = app
 
 	conn, err := NewConnection("localhost", "MyGameClient", streamConfig)
 	if err != nil {

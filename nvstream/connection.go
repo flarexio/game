@@ -63,7 +63,9 @@ func (conn *nvConnection) StartApp(ctx context.Context, app NvApp) error {
 
 	isNvidiaServerSoftware := false
 
-	negotiatedHDR := (conn.stream.SupportedVideoFormats & moonlight.VIDEO_FORMAT_MASK_10BIT) != 0
+	supportedVideoFormats := conn.stream.SupportedVideoFormatsBitmask()
+
+	negotiatedHDR := (supportedVideoFormats & moonlight.VIDEO_FORMAT_MASK_10BIT) != 0
 	if (info.ServerCodecModeSupport&0x20200) == 0 && negotiatedHDR {
 		return errors.New("server does not support HDR streaming")
 	}
@@ -73,7 +75,7 @@ func (conn *nvConnection) StartApp(ctx context.Context, app NvApp) error {
 			return errors.New("server does not support resolutions above 4K pixels")
 		}
 
-		if (conn.stream.SupportedVideoFormats & ^moonlight.VIDEO_FORMAT_MASK_H264) == 0 {
+		if (supportedVideoFormats & ^moonlight.VIDEO_FORMAT_MASK_H264) == 0 {
 			return errors.New("server does not support resolutions above 4K pixels for H264 streams")
 		}
 	}
@@ -113,13 +115,13 @@ func (conn *nvConnection) StartApp(ctx context.Context, app NvApp) error {
 		FPS:                   conn.stream.RefreshRate,
 		Bitrate:               conn.stream.Bitrate,
 		PacketSize:            negotiatedPacketSize,
-		StreamingRemotely:     negotiatedRemoteStreaming,
+		StreamingRemotely:     int(negotiatedRemoteStreaming),
 		AudioConfiguration:    conn.stream.AudioConfiguration,
-		SupportedVideoFormats: conn.stream.SupportedVideoFormats,
+		SupportedVideoFormats: int(supportedVideoFormats),
 		ClientRefreshRateX100: conn.stream.ClientRefreshRateX100,
-		EncryptionFlags:       moonlight.ENCFLG_ALL,
-		ColorSpace:            conn.stream.ColorSpace,
-		ColorRange:            conn.stream.ColorRange,
+		EncryptionFlags:       int(conn.stream.EncryptionFlags),
+		ColorSpace:            int(conn.stream.ColorSpace),
+		ColorRange:            int(conn.stream.ColorRange),
 		RemoteInputAES:        conn.ri,
 	}
 
@@ -138,16 +140,21 @@ func (conn *nvConnection) StopApp(ctx context.Context) error {
 }
 
 func (conn *nvConnection) StageStarting(stage int) {
-	conn.log.Info("connection starting", zap.Int("stage", stage))
+	conn.log.Info("connection starting",
+		zap.Int("stage", stage),
+		zap.String("stage_name", moonlight.StageName(stage)))
 }
 
 func (conn *nvConnection) StageComplete(stage int) {
-	conn.log.Info("connection complete", zap.Int("stage", stage))
+	conn.log.Info("connection complete",
+		zap.Int("stage", stage),
+		zap.String("stage_name", moonlight.StageName(stage)))
 }
 
 func (conn *nvConnection) StageFailed(stage int, errorCode int) {
 	conn.log.Error("connection failed",
 		zap.Int("stage", stage),
+		zap.String("stage_name", moonlight.StageName(stage)),
 		zap.Int("error_code", errorCode))
 }
 

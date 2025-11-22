@@ -367,7 +367,12 @@ func (h *nvHTTP) LaunchApp(ctx context.Context, appID int, enableHDR bool) (stri
 
 	values.Add("mode", fmt.Sprintf("%dx%dx%d", stream.Width, stream.Height, stream.LaunchRefreshRate))
 	values.Add("additionalStates", "1")
-	values.Add("sops", "1")
+
+	if stream.SOPS {
+		values.Add("sops", "1")
+	} else {
+		values.Add("sops", "0")
+	}
 
 	values.Add("rikey", hex.EncodeToString(ri.Key[:]))
 	values.Add("rikeyid", fmt.Sprintf("%d", ri.IV[:]))

@@ -54,9 +54,11 @@ func (vs *videoStream) Setup(format, width, height, redrawRate int) int {
 	vs.videoFormat = format
 	vs.refreshRate = redrawRate
 
+	videoFormat := moonlight.VideoFormatMask(format)
+
 	var mimeType string
 	switch {
-	case (vs.videoFormat & moonlight.VIDEO_FORMAT_MASK_H264) != 0:
+	case (videoFormat & moonlight.VIDEO_FORMAT_MASK_H264) != 0:
 		mimeType = "video/avc"
 
 		if vs.initialWidth > 4096 || vs.initialHeight > 4096 {
@@ -65,10 +67,10 @@ func (vs *videoStream) Setup(format, width, height, redrawRate int) int {
 			return -1
 		}
 
-	case (vs.videoFormat & moonlight.VIDEO_FORMAT_MASK_H265) != 0:
+	case (videoFormat & moonlight.VIDEO_FORMAT_MASK_H265) != 0:
 		mimeType = "video/hevc"
 
-	case (vs.videoFormat & moonlight.VIDEO_FORMAT_MASK_AV1) != 0:
+	case (videoFormat & moonlight.VIDEO_FORMAT_MASK_AV1) != 0:
 		mimeType = "video/av01"
 
 	default:

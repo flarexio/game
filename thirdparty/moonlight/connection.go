@@ -35,3 +35,8 @@ func StopConnection() {
 	C.LiInterruptConnection()
 	C.LiStopConnection()
 }
+
+func StageName(stage int) string {
+	name := C.LiGetStageName(C.int(stage))
+	return C.GoString(name)
+}

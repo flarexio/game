@@ -7,6 +7,8 @@ import (
 
 	"github.com/pion/webrtc/v4"
 	"gopkg.in/yaml.v3"
+
+	"github.com/flarexio/game/nvstream"
 )
 
 type Config struct {
@@ -78,17 +80,19 @@ type Stream struct {
 	Name      string
 	Transport Transport
 	Address   *url.URL
+	NVStream  *nvstream.StreamConfiguration
 	Video     *VideoTrack
 	Audio     *AudioTrack
 }
 
 func (s *Stream) UnmarshalYAML(value *yaml.Node) error {
 	var raw struct {
-		Name      string
-		Transport Transport
-		Address   string
-		Video     *VideoTrack
-		Audio     *AudioTrack
+		Name      string                        `yaml:"name"`
+		Transport Transport                     `yaml:"transport"`
+		Address   string                        `yaml:"address"`
+		NVStream  *nvstream.StreamConfiguration `yaml:"nvstream"`
+		Video     *VideoTrack                   `yaml:"video"`
+		Audio     *AudioTrack                   `yaml:"audio"`
 	}
 
 	if err := value.Decode(&raw); err != nil {
@@ -107,6 +111,7 @@ func (s *Stream) UnmarshalYAML(value *yaml.Node) error {
 		s.Address = url
 	}
 
+	s.NVStream = raw.NVStream
 	s.Video = raw.Video
 	s.Audio = raw.Audio
 

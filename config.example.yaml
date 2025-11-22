@@ -12,6 +12,26 @@ streams:
 - name: gamestream
   transport: nvstream
   address: https://localhost:47984
+  nvstream:
+    app: Stream
+    width: 1920
+    height: 1080
+    refreshRate: 60
+    launchRefreshRate: 60
+    clientRefreshRateX100: 6000
+    bitrate: 10000
+    sops: true
+    enableAdaptiveResolution: false
+    playLocalAudio: false
+    maxPacketSize: 1024
+    remote: auto                    # local, remote, auto
+    audioConfiguration: stereo      # stereo, 5.1, 7.1
+    supportedVideoFormats: [ h264 ] # h264, hevc, av1
+    attachedGamepadMask: 0
+    encryptionFlags: all
+    colorRange: limited
+    colorSpace: rec709
+    persistGamepadAfterDisconnect: false
   video: 
     codec: h264
   audio: 
