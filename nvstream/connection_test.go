@@ -38,7 +38,7 @@ func TestStartConnection(t *testing.T) {
 
 	var app NvApp
 	for _, a := range appList {
-		if strings.HasPrefix(a.Name, "Steam") {
+		if strings.Contains(a.Name, "Steam") {
 			app = a
 			break
 		}

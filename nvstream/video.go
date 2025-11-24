@@ -25,6 +25,8 @@ func NewVideoStream() VideoStream {
 	return &videoStream{
 		log:    log,
 		stream: new(bytes.Buffer),
+		closed: false,
+		cond:   sync.NewCond(&sync.Mutex{}),
 	}
 }
 
@@ -37,6 +39,8 @@ type videoStream struct {
 	refreshRate   int
 
 	stream *bytes.Buffer
+	closed bool
+	cond   *sync.Cond
 	sync.Mutex
 }
 
@@ -103,6 +107,15 @@ func (vs *videoStream) SubmitDecodeUnit(decodeUnit *moonlight.DecodeUnit) int {
 	vs.Lock()
 	defer vs.Unlock()
 
+	isIDR := decodeUnit.FrameType == int(moonlight.FRAME_TYPE_IDR)
+	if isIDR {
+		if vs.stream.Len() > 0 {
+			vs.stream.Reset()
+		}
+
+		vs.log.Debug("received IDR frame")
+	}
+
 	for currentEntry := decodeUnit.BufferList; currentEntry != nil; currentEntry = currentEntry.Next {
 		length := currentEntry.Length
 		if length == 0 {
@@ -111,6 +124,8 @@ func (vs *videoStream) SubmitDecodeUnit(decodeUnit *moonlight.DecodeUnit) int {
 
 		vs.stream.Write(currentEntry.Data[:length])
 	}
+
+	vs.cond.Signal()
 
 	return moonlight.DR_OK
 }
@@ -121,18 +136,28 @@ func (vs *videoStream) Capabilities() int {
 }
 
 func (vs *videoStream) Read(p []byte) (n int, err error) {
-	vs.Lock()
-	defer vs.Unlock()
+	vs.cond.L.Lock()
+	defer vs.cond.L.Unlock()
 
-	if vs.stream.Len() == 0 {
-		return 0, nil
+	// Wait until there's data to read or the stream is closed
+	for vs.stream.Len() == 0 && !vs.closed {
+		vs.cond.Wait()
+	}
+
+	if vs.closed && vs.stream.Len() == 0 {
+		return 0, io.EOF
 	}
 
 	return vs.stream.Read(p)
 }
 
 func (vs *videoStream) Close() error {
-	vs.Cleanup()
+	vs.Lock()
+	vs.closed = true
+	vs.stream.Reset()
+	vs.Unlock()
+
+	vs.cond.Broadcast()
 
 	vs.log.Info("video stream closed", zap.String("action", "close"))
 	return nil

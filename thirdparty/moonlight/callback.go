@@ -1,7 +1,7 @@
 package moonlight
 
 /*
-#cgo CFLAGS:  -I../moonlight-common-c/src -I.
+#cgo CFLAGS:  -I../moonlight-common-c/src -I. -Wno-dll-attribute-on-redeclaration
 #cgo LDFLAGS: -L../moonlight-common-c/build -lmoonlight-common-c -Wl,--allow-multiple-definition
 #include <stdlib.h>
 #include <Limelight.h>

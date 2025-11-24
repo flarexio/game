@@ -13,7 +13,7 @@ streams:
   transport: nvstream
   address: https://localhost:47984
   nvstream:
-    app: Stream
+    app: Steam
     width: 1920
     height: 1080
     refreshRate: 60
@@ -34,6 +34,7 @@ streams:
     persistGamepadAfterDisconnect: false
   video: 
     codec: h264
+    fps: 60
   audio: 
     codec: opus
 - name: stream
@@ -41,6 +42,7 @@ streams:
   video:
     codec: h264
     address: unix:///tmp/stream/video.sock
+    fps: 60
   audio:
     codec: opus
     address: unix:///tmp/stream/audio.sock

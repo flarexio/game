@@ -127,6 +127,7 @@ type Track interface {
 type VideoTrack struct {
 	address *url.URL
 	codec   Codec
+	fps     float64
 	track   webrtc.TrackLocal
 }
 
@@ -138,14 +139,19 @@ func (video *VideoTrack) Codec() Codec {
 	return video.codec
 }
 
+func (video *VideoTrack) FPS() float64 {
+	return video.fps
+}
+
 func (video *VideoTrack) Track() webrtc.TrackLocal {
 	return video.track
 }
 
 func (video *VideoTrack) UnmarshalYAML(value *yaml.Node) error {
 	var raw struct {
-		Address string
-		Codec   Codec
+		Address string  `yaml:"address"`
+		Codec   Codec   `yaml:"codec"`
+		FPS     float64 `yaml:"fps"`
 	}
 
 	if err := value.Decode(&raw); err != nil {
@@ -173,6 +179,7 @@ func (video *VideoTrack) UnmarshalYAML(value *yaml.Node) error {
 	}
 
 	video.codec = raw.Codec
+	video.fps = raw.FPS
 
 	return nil
 }

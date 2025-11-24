@@ -40,3 +40,7 @@ func StageName(stage int) string {
 	name := C.LiGetStageName(C.int(stage))
 	return C.GoString(name)
 }
+
+func RequestIDRFrame() {
+	C.LiRequestIdrFrame()
+}

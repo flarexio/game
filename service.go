@@ -22,6 +22,8 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/flarexio/core/model"
+	"github.com/flarexio/game/nvstream"
+	"github.com/flarexio/game/thirdparty/moonlight"
 )
 
 type Service interface {
@@ -49,7 +51,10 @@ func NewService(cfg *Config, nc *nats.Conn) (Service, error) {
 		cancel: cancel,
 	}
 
-	svc.buildStreams(ctx, cfg.Streams)
+	err := svc.buildStreams(ctx, cfg.Streams)
+	if err != nil {
+		return nil, err
+	}
 
 	gamepad, err := NewGamepad()
 	if err != nil {
@@ -126,7 +131,72 @@ func (svc *service) buildStreams(ctx context.Context, streams []*Stream) error {
 			}
 
 		case TransportNV:
-			// TODO: implement NVStream transport
+			// Resolve NVStream App
+			host := stream.Address.Hostname()
+
+			http, err := nvstream.NewHTTP("MyGameClient", host)
+			if err != nil {
+				return err
+			}
+
+			appList, err := http.AppList()
+			if err != nil {
+				return err
+			}
+
+			var app nvstream.NvApp
+			for _, a := range appList {
+				if !strings.Contains(a.Name, stream.NVStream.App.Name) {
+					continue
+				}
+
+				app = a
+			}
+
+			if (app == nvstream.NvApp{}) {
+				return errors.New("nvstream app not found: " + stream.NVStream.App.Name)
+			}
+
+			stream.NVStream.App = app
+
+			conn, err := nvstream.NewConnection(host, "MyGameClient", stream.NVStream)
+			if err != nil {
+				return err
+			}
+
+			vs := nvstream.NewVideoStream()
+			as := nvstream.NewAudioStream()
+
+			moonlight.SetupCallbacks(conn, vs, as)
+
+			if err := conn.StartApp(ctx, app); err != nil {
+				return err
+			}
+
+			if video := stream.Video; video != nil {
+				trackID := stream.Name + "_video"
+				// trackID := "video_0"
+
+				track, err := webrtc.NewTrackLocalStaticSample(
+					webrtc.RTPCodecCapability{
+						MimeType: video.Codec().MimeType(),
+					}, trackID, stream.Name,
+				)
+
+				if err != nil {
+					return err
+				}
+
+				video.track = track
+
+				if err := svc.trackHandler(ctx, vs, video); err != nil {
+					return err
+				}
+			}
+
+			if audio := stream.Audio; audio != nil {
+				// TODO: support more audio codecs
+			}
 
 		default:
 			return errors.New("transport unsupported")
@@ -215,19 +285,33 @@ func (svc *service) listen(ctx context.Context, track Track) {
 }
 
 func (svc *service) trackHandler(ctx context.Context, r io.ReadCloser, track Track) error {
-	switch track.Codec() {
-	case CodecH264:
-		go svc.h264Handler(ctx, r, track)
-	case CodecOpus:
-		go svc.oggHandler(ctx, r, track)
+	switch track := track.(type) {
+	case *VideoTrack:
+		switch track.Codec() {
+		case CodecH264:
+			go svc.h264Handler(ctx, r, track)
+
+		default:
+			return errors.New("video codec unsupported")
+		}
+
+	case *AudioTrack:
+		switch track.Codec() {
+		case CodecOpus:
+			go svc.oggHandler(ctx, r, track)
+
+		default:
+			return errors.New("audio codec unsupported")
+		}
+
 	default:
-		return errors.New("codec unsupported")
+		return errors.New("track type unsupported")
 	}
 
 	return nil
 }
 
-func (svc *service) h264Handler(ctx context.Context, r io.ReadCloser, video Track) {
+func (svc *service) h264Handler(ctx context.Context, r io.ReadCloser, video *VideoTrack) {
 	log, ok := ctx.Value(model.Logger).(*zap.Logger)
 	if !ok {
 		log = svc.log
@@ -237,15 +321,12 @@ func (svc *service) h264Handler(ctx context.Context, r io.ReadCloser, video Trac
 		zap.String("track", "video"),
 		zap.String("container", "raw"),
 		zap.String("codec", string(video.Codec())),
+		zap.Float64("fps", video.FPS()),
 	)
 
-	videoTrack, ok := video.(*VideoTrack)
-	if !ok {
-		log.Error("invalid type")
-		return
-	}
+	frameDuration := time.Second / time.Duration(video.FPS())
 
-	track, ok := videoTrack.Track().(*webrtc.TrackLocalStaticSample)
+	track, ok := video.Track().(*webrtc.TrackLocalStaticSample)
 	if !ok {
 		log.Error("invalid type")
 		return
@@ -275,13 +356,13 @@ func (svc *service) h264Handler(ctx context.Context, r io.ReadCloser, video Trac
 
 			track.WriteSample(media.Sample{
 				Data:     nal.Data,
-				Duration: 33 * time.Millisecond,
+				Duration: frameDuration,
 			})
 		}
 	}
 }
 
-func (svc *service) oggHandler(ctx context.Context, r io.ReadCloser, audio Track) {
+func (svc *service) oggHandler(ctx context.Context, r io.ReadCloser, audio *AudioTrack) {
 	log, ok := ctx.Value(model.Logger).(*zap.Logger)
 	if !ok {
 		log = svc.log
@@ -293,13 +374,7 @@ func (svc *service) oggHandler(ctx context.Context, r io.ReadCloser, audio Track
 		zap.String("codec", string(audio.Codec())),
 	)
 
-	audioTrack, ok := audio.(*AudioTrack)
-	if !ok {
-		log.Error("invalid type")
-		return
-	}
-
-	track, ok := audioTrack.Track().(*webrtc.TrackLocalStaticSample)
+	track, ok := audio.Track().(*webrtc.TrackLocalStaticSample)
 	if !ok {
 		log.Error("invalid type")
 		return
@@ -507,7 +582,7 @@ func (svc *service) AcceptPeer(offer webrtc.SessionDescription, reply string) (*
 
 	peer.sub = sub
 
-	stream, err := svc.FindStream("stream")
+	stream, err := svc.FindStream("gamestream")
 	if err != nil {
 		return nil, err
 	}
@@ -521,14 +596,14 @@ func (svc *service) AcceptPeer(offer webrtc.SessionDescription, reply string) (*
 		return nil, err
 	}
 
-	audioTrack := stream.Audio.Track()
-	if audioTrack == nil {
-		return nil, errors.New("audio track not found")
-	}
+	// audioTrack := stream.Audio.Track()
+	// if audioTrack == nil {
+	// 	return nil, errors.New("audio track not found")
+	// }
 
-	if _, err := conn.AddTrack(audioTrack); err != nil {
-		return nil, err
-	}
+	// if _, err := conn.AddTrack(audioTrack); err != nil {
+	// 	return nil, err
+	// }
 
 	if err := conn.SetRemoteDescription(offer); err != nil {
 		return nil, err
@@ -567,6 +642,10 @@ func (peer *Peer) Init() {
 	peer.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		log.Info("connection state updated",
 			zap.String("state", state.String()))
+
+		if state == webrtc.PeerConnectionStateConnected {
+			moonlight.RequestIDRFrame()
+		}
 	})
 
 	peer.OnDataChannel(func(dc *webrtc.DataChannel) {

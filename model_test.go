@@ -34,6 +34,8 @@ func TestConfig(t *testing.T) {
 		assert.Equal(TransportNV, stream.Transport)
 		assert.Equal("https://localhost:47984", stream.Address.String())
 
+		assert.NotNil(stream.NVStream)
+
 		assert.Equal(CodecH264, stream.Video.Codec())
 		assert.Equal(CodecOpus, stream.Audio.Codec())
 	}
