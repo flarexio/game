@@ -36,12 +36,29 @@ To build this project, you need to install the following tools:
 
 1. Clone the repository and initialize submodules:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/flarexio/game.git
    cd game
    git submodule update --init --recursive
    ```
 
-2. Build moonlight-common-c (PowerShell):
+2. Build opus (PowerShell):
+   ```powershell
+   cd thirdparty/opus
+   
+   # Configure and build
+   mkdir build; cd build
+   cmake -G "Ninja" -S .. -B . `
+     -DCMAKE_BUILD_TYPE=Release `
+     -DOPUS_BUILD_SHARED_LIBRARY=ON `
+     -DOPUS_BUILD_TESTING=OFF `
+     -DOPUS_BUILD_PROGRAMS=OFF `
+     -DCMAKE_C_COMPILER=clang `
+     -DCMAKE_C_COMPILER_TARGET=x86_64-w64-mingw32
+
+   cmake --build . --parallel
+   ```
+
+3. Build moonlight-common-c (PowerShell):
    ```powershell
    cd thirdparty/moonlight-common-c
    
@@ -69,6 +86,7 @@ To build this project, you need to install the following tools:
 3. Set up runtime environment:
    
    Before running the application, ensure the following paths are in your PATH environment variable:
+   - `thirdparty\opus\build` (for `opus.dll`)
    - `thirdparty\moonlight-common-c\build` (for `moonlight-common-c.dll`)
    - `C:\msys64\ucrt64\bin` (for OpenSSL DLLs: `libssl-3-x64.dll`, `libcrypto-3-x64.dll`)
 

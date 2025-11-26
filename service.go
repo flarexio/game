@@ -175,7 +175,6 @@ func (svc *service) buildStreams(ctx context.Context, streams []*Stream) error {
 
 			if video := stream.Video; video != nil {
 				trackID := stream.Name + "_video"
-				// trackID := "video_0"
 
 				track, err := webrtc.NewTrackLocalStaticSample(
 					webrtc.RTPCodecCapability{
@@ -195,7 +194,23 @@ func (svc *service) buildStreams(ctx context.Context, streams []*Stream) error {
 			}
 
 			if audio := stream.Audio; audio != nil {
-				// TODO: support more audio codecs
+				trackID := stream.Name + "_audio"
+
+				track, err := webrtc.NewTrackLocalStaticSample(
+					webrtc.RTPCodecCapability{
+						MimeType: audio.Codec().MimeType(),
+					}, trackID, stream.Name,
+				)
+
+				if err != nil {
+					return err
+				}
+
+				audio.track = track
+
+				if err := svc.trackHandler(ctx, as, audio); err != nil {
+					return err
+				}
 			}
 
 		default:
@@ -298,7 +313,12 @@ func (svc *service) trackHandler(ctx context.Context, r io.ReadCloser, track Tra
 	case *AudioTrack:
 		switch track.Codec() {
 		case CodecOpus:
-			go svc.oggHandler(ctx, r, track)
+			_, ok := r.(nvstream.AudioStream)
+			if ok {
+				go svc.opusHandler(ctx, r, track)
+			} else {
+				go svc.oggHandler(ctx, r, track)
+			}
 
 		default:
 			return errors.New("audio codec unsupported")
@@ -411,6 +431,61 @@ func (svc *service) oggHandler(ctx context.Context, r io.ReadCloser, audio *Audi
 				Data:     payload,
 				Duration: sampleDuration,
 			})
+		}
+	}
+}
+
+func (svc *service) opusHandler(ctx context.Context, r io.ReadCloser, audio *AudioTrack) {
+	log, ok := ctx.Value(model.Logger).(*zap.Logger)
+	if !ok {
+		log = svc.log
+	}
+
+	log = log.With(
+		zap.String("track", "audio"),
+		zap.String("container", "raw"),
+		zap.String("codec", string(audio.Codec())),
+	)
+
+	track, ok := audio.Track().(*webrtc.TrackLocalStaticSample)
+	if !ok {
+		log.Error("invalid type")
+		return
+	}
+
+	as, ok := r.(nvstream.AudioStream)
+	if !ok {
+		log.Error("invalid type")
+		return
+	}
+
+	duration := as.SampleDuration()
+
+	log.Info("playing", zap.Duration("sample_duration", duration))
+
+	buf := make([]byte, 1400)
+	for {
+		select {
+		case <-ctx.Done():
+			r.Close()
+			log.Info("done")
+			return
+
+		default:
+			n, err := r.Read(buf)
+			if err != nil {
+				if err != io.EOF {
+					log.Error(err.Error())
+				}
+				return
+			}
+
+			if n > 0 {
+				track.WriteSample(media.Sample{
+					Data:     buf[:n],
+					Duration: duration,
+				})
+			}
 		}
 	}
 }
@@ -596,14 +671,14 @@ func (svc *service) AcceptPeer(offer webrtc.SessionDescription, reply string) (*
 		return nil, err
 	}
 
-	// audioTrack := stream.Audio.Track()
-	// if audioTrack == nil {
-	// 	return nil, errors.New("audio track not found")
-	// }
+	audioTrack := stream.Audio.Track()
+	if audioTrack == nil {
+		return nil, errors.New("audio track not found")
+	}
 
-	// if _, err := conn.AddTrack(audioTrack); err != nil {
-	// 	return nil, err
-	// }
+	if _, err := conn.AddTrack(audioTrack); err != nil {
+		return nil, err
+	}
 
 	if err := conn.SetRemoteDescription(offer); err != nil {
 		return nil, err

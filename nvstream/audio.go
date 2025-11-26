@@ -1,10 +1,11 @@
 package nvstream
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"sync"
+	"time"
+	"unsafe"
 
 	"go.uber.org/zap"
 
@@ -14,6 +15,7 @@ import (
 type AudioStream interface {
 	moonlight.AudioRenderer
 	io.ReadCloser
+	SampleDuration() time.Duration
 }
 
 func NewAudioStream() AudioStream {
@@ -23,19 +25,22 @@ func NewAudioStream() AudioStream {
 	)
 
 	return &audioStream{
-		log:    log,
-		stream: new(bytes.Buffer),
+		log:     log,
+		packets: make(chan []byte, 500),
+		closed:  false,
 	}
 }
 
 type audioStream struct {
 	log *zap.Logger
 
-	stream *bytes.Buffer
+	sampleDuration time.Duration
+	packets        chan []byte
+	closed         bool
 	sync.Mutex
 }
 
-func (as *audioStream) Init(audioConfiguration moonlight.AudioConfiguration, opusConfig *moonlight.OpusMultiStreamConfiguration) int {
+func (as *audioStream) Init(audioConfiguration moonlight.AudioConfiguration, opusConfig *moonlight.OpusMultiStreamConfiguration, _ unsafe.Pointer, _ int) int {
 	log := as.log.With(
 		zap.String("action", "init"),
 		zap.Int("channel_count", audioConfiguration.ChannelCount),
@@ -44,11 +49,11 @@ func (as *audioStream) Init(audioConfiguration moonlight.AudioConfiguration, opu
 
 	var layout string
 	switch audioConfiguration.ChannelCount {
-	case 2: // Stereo
-		layout = "stereo"
-
 	case 1: // Mono
 		layout = "mono"
+
+	case 2: // Stereo
+		layout = "stereo"
 
 	case 4: // Quad
 		layout = "quad"
@@ -65,32 +70,70 @@ func (as *audioStream) Init(audioConfiguration moonlight.AudioConfiguration, opu
 		return -1
 	}
 
-	bytesPerFrame := audioConfiguration.ChannelCount * 2 * opusConfig.SamplesPerFrame
+	sampleRate := opusConfig.SampleRate
+	durationMs := (opusConfig.SamplesPerFrame * 1000) / sampleRate
+
+	as.Lock()
+	as.sampleDuration = time.Duration(durationMs) * time.Millisecond
+	as.Unlock()
 
 	log.Info("audio stream initialized successfully",
 		zap.String("layout", layout),
-		zap.Int("bytes_per_frame", bytesPerFrame))
+		zap.Int("sample_rate", sampleRate),
+		zap.Duration("duration", as.sampleDuration),
+	)
 
 	return 0
 }
 
+func (as *audioStream) SampleDuration() time.Duration {
+	as.Lock()
+	duration := as.sampleDuration
+	as.Unlock()
+	return duration
+}
+
 func (as *audioStream) Start() {
-	as.log.Info("audio stream started")
+	as.log.Info("audio stream started", zap.String("action", "start"))
 }
 
 func (as *audioStream) Stop() {
-	as.log.Info("audio stream stopped")
+	as.log.Info("audio stream stopped", zap.String("action", "stop"))
 }
 
 func (as *audioStream) Cleanup() {
-	as.log.Info("audio stream cleaned up")
+	as.log.Info("audio stream cleaned up", zap.String("action", "cleanup"))
 }
 
 func (as *audioStream) AudioRendererDecodeAndPlaySample(sampleData []byte, sampleLength int) {
 	as.Lock()
-	defer as.Unlock()
+	closed := as.closed
+	as.Unlock()
 
-	as.stream.Write(sampleData[:sampleLength])
+	if closed || sampleLength == 0 {
+		return
+	}
+
+	data := make([]byte, sampleLength)
+	copy(data, sampleData[:sampleLength])
+
+	select {
+	case as.packets <- data:
+	default:
+		as.log.Warn("audio packet dropped due to full buffer")
+		as.flushQueue()
+		as.packets <- data
+	}
+}
+
+func (as *audioStream) flushQueue() {
+	for {
+		select {
+		case <-as.packets:
+		default:
+			return
+		}
+	}
 }
 
 func (as *audioStream) Capabilities() int {
@@ -100,16 +143,30 @@ func (as *audioStream) Capabilities() int {
 
 func (as *audioStream) Read(p []byte) (n int, err error) {
 	as.Lock()
-	defer as.Unlock()
+	closed := as.closed
+	as.Unlock()
 
-	if as.stream.Len() == 0 {
+	if closed {
 		return 0, io.EOF
 	}
 
-	return as.stream.Read(p)
+	packet, ok := <-as.packets
+	if !ok {
+		return 0, io.EOF
+	}
+
+	n = copy(p, packet)
+	return n, nil
 }
 
 func (as *audioStream) Close() error {
+	as.Lock()
+	if !as.closed {
+		as.closed = true
+		close(as.packets)
+	}
+	as.Unlock()
+
 	as.log.Info("audio stream closed", zap.String("action", "close"))
 	return nil
 }

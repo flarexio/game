@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"unsafe"
 
 	"go.uber.org/zap"
 
@@ -44,7 +45,7 @@ type videoStream struct {
 	sync.Mutex
 }
 
-func (vs *videoStream) Setup(format, width, height, redrawRate int) int {
+func (vs *videoStream) Setup(format, width, height, redrawRate int, _ unsafe.Pointer, _ int) int {
 	resolution := fmt.Sprintf("%dx%d@%d", width, height, redrawRate)
 
 	log := vs.log.With(

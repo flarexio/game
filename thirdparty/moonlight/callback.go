@@ -126,7 +126,7 @@ func goClSetControllerLED(controllerNumber C.uint16_t, r C.uint8_t, g C.uint8_t,
 }
 
 type VideoDecoderRenderer interface {
-	Setup(format, width, height, redrawRate int) int
+	Setup(format, width, height, redrawRate int, context unsafe.Pointer, drFlags int) int
 	Start()
 	Stop()
 	Cleanup()
@@ -163,6 +163,7 @@ func goDrSetup(videoFormat, width, height, redrawRate C.int, context unsafe.Poin
 	rc := videoRenderer.Setup(
 		int(videoFormat),
 		int(width), int(height), int(redrawRate),
+		context, int(drFlags),
 	)
 
 	if rc != 0 {
@@ -246,7 +247,7 @@ func convertCLentryToGo(cEntry *C.LENTRY) *Lentry {
 }
 
 type AudioRenderer interface {
-	Init(audioConfiguration AudioConfiguration, opusConfig *OpusMultiStreamConfiguration) int
+	Init(audioConfiguration AudioConfiguration, opusConfig *OpusMultiStreamConfiguration, context unsafe.Pointer, arFlags int) int
 	Start()
 	Stop()
 	Cleanup()
@@ -290,7 +291,7 @@ func goArInit(audioConfiguration C.int, cfg *C.OPUS_MULTISTREAM_CONFIGURATION, c
 		Mapping:         mapping,
 	}
 
-	rc := audioRenderer.Init(audioConfig, opusConfig)
+	rc := audioRenderer.Init(audioConfig, opusConfig, context, int(arFlags))
 
 	return C.int(rc)
 }
