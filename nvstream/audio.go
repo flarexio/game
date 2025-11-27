@@ -1,6 +1,7 @@
 package nvstream
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"sync"
@@ -25,9 +26,10 @@ func NewAudioStream() AudioStream {
 	)
 
 	return &audioStream{
-		log:     log,
-		packets: make(chan []byte, 500),
-		closed:  false,
+		log:    log,
+		stream: new(bytes.Buffer),
+		closed: false,
+		cond:   sync.NewCond(&sync.Mutex{}),
 	}
 }
 
@@ -35,8 +37,9 @@ type audioStream struct {
 	log *zap.Logger
 
 	sampleDuration time.Duration
-	packets        chan []byte
+	stream         *bytes.Buffer
 	closed         bool
+	cond           *sync.Cond
 	sync.Mutex
 }
 
@@ -102,38 +105,24 @@ func (as *audioStream) Stop() {
 }
 
 func (as *audioStream) Cleanup() {
+	as.Lock()
+	as.stream.Reset()
+	as.Unlock()
+
 	as.log.Info("audio stream cleaned up", zap.String("action", "cleanup"))
 }
 
-func (as *audioStream) AudioRendererDecodeAndPlaySample(sampleData []byte, sampleLength int) {
+func (as *audioStream) PlayEncodedSample(sampleData []byte, sampleLength int) {
 	as.Lock()
-	closed := as.closed
-	as.Unlock()
+	defer as.Unlock()
 
-	if closed || sampleLength == 0 {
+	if as.closed || sampleLength <= 0 {
 		return
 	}
 
-	data := make([]byte, sampleLength)
-	copy(data, sampleData[:sampleLength])
+	as.stream.Write(sampleData[:sampleLength])
 
-	select {
-	case as.packets <- data:
-	default:
-		as.log.Warn("audio packet dropped due to full buffer")
-		as.flushQueue()
-		as.packets <- data
-	}
-}
-
-func (as *audioStream) flushQueue() {
-	for {
-		select {
-		case <-as.packets:
-		default:
-			return
-		}
-	}
+	as.cond.Signal()
 }
 
 func (as *audioStream) Capabilities() int {
@@ -142,30 +131,27 @@ func (as *audioStream) Capabilities() int {
 }
 
 func (as *audioStream) Read(p []byte) (n int, err error) {
-	as.Lock()
-	closed := as.closed
-	as.Unlock()
+	as.cond.L.Lock()
+	defer as.cond.L.Unlock()
 
-	if closed {
+	for as.stream.Len() == 0 && !as.closed {
+		as.cond.Wait()
+	}
+
+	if as.closed && as.stream.Len() == 0 {
 		return 0, io.EOF
 	}
 
-	packet, ok := <-as.packets
-	if !ok {
-		return 0, io.EOF
-	}
-
-	n = copy(p, packet)
-	return n, nil
+	return as.stream.Read(p)
 }
 
 func (as *audioStream) Close() error {
 	as.Lock()
-	if !as.closed {
-		as.closed = true
-		close(as.packets)
-	}
+	as.closed = true
+	as.stream.Reset()
 	as.Unlock()
+
+	as.cond.Broadcast()
 
 	as.log.Info("audio stream closed", zap.String("action", "close"))
 	return nil

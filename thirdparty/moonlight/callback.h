@@ -13,7 +13,8 @@ extern void goClStageComplete(int stage);
 extern void goClStageFailed(int stage, int errorCode);
 extern void goClConnectionStarted(void);
 extern void goClConnectionTerminated(int errorCode);
-extern void goClLogMessage(const char* format, ...);
+// extern void goClLogMessage(const char* format, ...);
+extern void clLogMessage(const char* format, ...);
 extern void goClRumble(unsigned short controllerNumber, unsigned short lowFreqMotor, unsigned short highFreqMotor);
 extern void goClConnectionStatusUpdate(int connectionStatus);
 extern void goClSetHDRMode(bool hdrEnabled);
@@ -29,11 +30,14 @@ extern void goDrCleanup(void);
 extern int goDrSubmitDecodeUnit(PDECODE_UNIT decodeUnit);
 
 // Audio Renderer Callbacks
-extern int goArInit(int audioConfiguration, POPUS_MULTISTREAM_CONFIGURATION opusConfig, void* context, int arFlags);
+// extern int goArInit(int audioConfiguration, POPUS_MULTISTREAM_CONFIGURATION opusConfig, void* context, int arFlags);
+extern int arInit(int audioConfiguration, POPUS_MULTISTREAM_CONFIGURATION opusConfig, void* context, int arFlags);
 extern void goArStart(void);
 extern void goArStop(void);
-extern void goArCleanup(void);
-extern void goArDecodeAndPlaySample(char* sampleData, int sampleLength);
+// extern void goArCleanup(void);
+extern void arCleanup(void);
+// extern void goArDecodeAndPlaySample(char* sampleData, int sampleLength);
+extern void arDecodeAndPlaySample(char* sampleData, int sampleLength);
 
 // Helper function to setup callbacks
 void setupCallbacks(

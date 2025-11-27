@@ -1,8 +1,8 @@
 package moonlight
 
 /*
-#cgo CFLAGS:  -I../moonlight-common-c/src -I. -Wno-dll-attribute-on-redeclaration
-#cgo LDFLAGS: -L../moonlight-common-c/build -lmoonlight-common-c -Wl,--allow-multiple-definition
+#cgo CFLAGS:  -I../moonlight-common-c/src -I../opus/include -I. -Wno-dll-attribute-on-redeclaration
+#cgo LDFLAGS: -L../moonlight-common-c/build -lmoonlight-common-c -L../opus/build -lopus -Wl,--allow-multiple-definition
 #include <stdlib.h>
 #include <Limelight.h>
 #include <Windows.h>
@@ -88,8 +88,8 @@ func goClConnectionTerminated(errorCode C.int) {
 	connectionListener.ConnectionTerminated(int(errorCode))
 }
 
-//export goClLogMessageImpl
-func goClLogMessageImpl(message *C.char) {
+//export goClLogMessage
+func goClLogMessage(message *C.char) {
 	goMessage := C.GoString(message)
 	connectionListener.LogMessage("%s", goMessage)
 }
@@ -251,7 +251,7 @@ type AudioRenderer interface {
 	Start()
 	Stop()
 	Cleanup()
-	AudioRendererDecodeAndPlaySample(sampleData []byte, sampleLength int)
+	PlayEncodedSample(sampleData []byte, sampleLength int)
 	Capabilities() int
 }
 
@@ -318,12 +318,12 @@ func goArCleanup() {
 	}
 }
 
-//export goArDecodeAndPlaySample
-func goArDecodeAndPlaySample(sampleData *C.char, sampleLength C.int) {
+//export goArPlayEncodedSample
+func goArPlayEncodedSample(opusData *C.uchar, opusLength C.int) {
 	if audioRenderer == nil {
 		return
 	}
 
-	data := C.GoBytes(unsafe.Pointer(sampleData), sampleLength)
-	audioRenderer.AudioRendererDecodeAndPlaySample(data, int(sampleLength))
+	sampleBytes := C.GoBytes(unsafe.Pointer(opusData), opusLength)
+	audioRenderer.PlayEncodedSample(sampleBytes, int(opusLength))
 }
