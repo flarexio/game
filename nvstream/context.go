@@ -34,7 +34,7 @@ func DefaultStreamConfiguration() *StreamConfiguration {
 		AudioConfiguration:            moonlight.AUDIO_CONFIGURATION_STEREO,
 		SupportedVideoFormats:         []moonlight.VideoFormat{moonlight.VIDEO_FORMAT_H264},
 		AttachedGamepadMask:           0,
-		EncryptionFlags:               moonlight.ENCFLG_ALL,
+		EncryptionFlags:               moonlight.ENCFLG_NONE,
 		ColorRange:                    moonlight.COLOR_RANGE_LIMITED,
 		ColorSpace:                    moonlight.COLORSPACE_REC_709,
 		PersistGamepadAfterDisconnect: false,

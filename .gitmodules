@@ -1,6 +1,3 @@
 [submodule "thirdparty/moonlight-common-c"]
 	path = thirdparty/moonlight-common-c
 	url = https://github.com/moonlight-stream/moonlight-common-c
-[submodule "thirdparty/opus"]
-	path = thirdparty/opus
-	url = https://github.com/xiph/opus.git

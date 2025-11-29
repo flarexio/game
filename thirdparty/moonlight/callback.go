@@ -1,8 +1,8 @@
 package moonlight
 
 /*
-#cgo CFLAGS:  -I../moonlight-common-c/src -I../opus/include -I. -Wno-dll-attribute-on-redeclaration
-#cgo LDFLAGS: -L../moonlight-common-c/build -lmoonlight-common-c -L../opus/build -lopus -Wl,--allow-multiple-definition
+#cgo CFLAGS:  -I../moonlight-common-c/src -I. -Wno-dll-attribute-on-redeclaration
+#cgo LDFLAGS: -L../moonlight-common-c/build -lmoonlight-common-c -Wl,--allow-multiple-definition
 #include <stdlib.h>
 #include <Limelight.h>
 #include <Windows.h>
@@ -318,12 +318,12 @@ func goArCleanup() {
 	}
 }
 
-//export goArPlayEncodedSample
-func goArPlayEncodedSample(opusData *C.uchar, opusLength C.int) {
+//export goArDecodeAndPlaySample
+func goArDecodeAndPlaySample(sampleData *C.char, sampleLength C.int) {
 	if audioRenderer == nil {
 		return
 	}
 
-	sampleBytes := C.GoBytes(unsafe.Pointer(opusData), opusLength)
-	audioRenderer.PlayEncodedSample(sampleBytes, int(opusLength))
+	sampleBytes := C.GoBytes(unsafe.Pointer(sampleData), sampleLength)
+	audioRenderer.PlayEncodedSample(sampleBytes, int(sampleLength))
 }

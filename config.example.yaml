@@ -28,7 +28,7 @@ streams:
     audioConfiguration: stereo      # stereo, 5.1, 7.1
     supportedVideoFormats: [ h264 ] # h264, hevc, av1
     attachedGamepadMask: 0
-    encryptionFlags: all
+    encryptionFlags: none
     colorRange: limited
     colorSpace: rec709
     persistGamepadAfterDisconnect: false
