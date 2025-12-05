@@ -12,6 +12,7 @@ import (
 )
 
 type Config struct {
+	Path    string    `yaml:"-"`
 	WebRTC  WebRTC    `yaml:"webrtc"`
 	Streams []*Stream `yaml:"streams"`
 }

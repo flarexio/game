@@ -47,7 +47,7 @@ type NvHTTP interface {
 	Unpair() error
 }
 
-func NewHTTP(uniqueID string, host string) (NvHTTP, error) {
+func NewHTTP(uniqueID string, host string, dir ...string) (NvHTTP, error) {
 	if uniqueID == "" {
 		uniqueID = "0123456789ABCDEF"
 	}
@@ -58,17 +58,19 @@ func NewHTTP(uniqueID string, host string) (NvHTTP, error) {
 		http:     new(http.Client),
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
+	var workdir string
+	if len(dir) > 0 {
+		workdir = dir[0]
+	} else {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+
+		workdir = filepath.Join(homeDir, ".flarex", "game")
 	}
 
-	path := filepath.Join(homeDir, ".flarex", "game", "certs")
-	if err := os.MkdirAll(path, 0700); err != nil {
-		return nil, err
-	}
-
-	h.path = path
+	h.path = filepath.Join(workdir, "certs")
 
 	if err := h.loadClientCertificate(); err != nil {
 		return nil, err
@@ -94,6 +96,10 @@ type nvHTTP struct {
 }
 
 func (h *nvHTTP) loadClientCertificate() error {
+	if err := os.MkdirAll(h.path, 0700); err != nil {
+		return err
+	}
+
 	certPEM, keyPEM, err := LoadCertificate(h.path)
 	if err != nil {
 		validFor := 20 * 365 * 24 * time.Hour

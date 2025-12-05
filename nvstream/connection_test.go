@@ -52,7 +52,7 @@ func TestStartConnection(t *testing.T) {
 	streamConfig := DefaultStreamConfiguration()
 	streamConfig.App = app
 
-	conn, err := NewConnection("localhost", "MyGameClient", streamConfig)
+	conn, err := NewConnection(http, streamConfig)
 	if err != nil {
 		assert.Fail(err.Error())
 		return
@@ -75,7 +75,13 @@ func TestStartConnection(t *testing.T) {
 func TestStopConnection(t *testing.T) {
 	assert := assert.New(t)
 
-	conn, err := NewConnection("localhost", "MyGameClient", nil)
+	http, err := NewHTTP("MyGameClient", "localhost")
+	if err != nil {
+		assert.Fail(err.Error())
+		return
+	}
+
+	conn, err := NewConnection(http, nil)
 	if err != nil {
 		assert.Fail(err.Error())
 		return

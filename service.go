@@ -134,7 +134,7 @@ func (svc *service) buildStreams(ctx context.Context, streams []*Stream) error {
 			// Resolve NVStream App
 			host := stream.Address.Hostname()
 
-			http, err := nvstream.NewHTTP("MyGameClient", host)
+			http, err := nvstream.NewHTTP("MyGameClient", host, svc.cfg.Path)
 			if err != nil {
 				return err
 			}
@@ -159,7 +159,7 @@ func (svc *service) buildStreams(ctx context.Context, streams []*Stream) error {
 
 			stream.NVStream.App = app
 
-			conn, err := nvstream.NewConnection(host, "MyGameClient", stream.NVStream)
+			conn, err := nvstream.NewConnection(http, stream.NVStream)
 			if err != nil {
 				return err
 			}

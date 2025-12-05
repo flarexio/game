@@ -17,11 +17,9 @@ type NvConnection interface {
 	moonlight.ConnectionListener
 }
 
-func NewConnection(host string, uniqueID string, stream *StreamConfiguration) (NvConnection, error) {
+func NewConnection(http NvHTTP, stream *StreamConfiguration) (NvConnection, error) {
 	log := zap.L().With(
 		zap.String("component", "nvstream.connection"),
-		zap.String("host", host),
-		zap.String("unique_id", uniqueID),
 	)
 
 	ri, err := moonlight.NewRemoteInputAES()
@@ -30,29 +28,22 @@ func NewConnection(host string, uniqueID string, stream *StreamConfiguration) (N
 	}
 
 	return &nvConnection{
-		log:      log,
-		uniqueID: uniqueID,
-		host:     host,
-		stream:   stream,
-		ri:       ri,
+		log:    log,
+		http:   http,
+		stream: stream,
+		ri:     ri,
 	}, nil
 }
 
 type nvConnection struct {
-	log      *zap.Logger
-	uniqueID string
-	host     string
-	stream   *StreamConfiguration
-	ri       *moonlight.RemoteInputAES
+	log    *zap.Logger
+	http   NvHTTP
+	stream *StreamConfiguration
+	ri     *moonlight.RemoteInputAES
 }
 
 func (conn *nvConnection) StartApp(ctx context.Context, app NvApp) error {
-	http, err := NewHTTP(conn.uniqueID, conn.host)
-	if err != nil {
-		return err
-	}
-
-	info, err := http.ServerInfo()
+	info, err := conn.http.ServerInfo()
 	if err != nil {
 		return err
 	}
@@ -96,7 +87,7 @@ func (conn *nvConnection) StartApp(ctx context.Context, app NvApp) error {
 	ctx = context.WithValue(ctx, CtxKeyStreamConfiguration, conn.stream)
 	ctx = context.WithValue(ctx, CtxKeyRemoteInputAES, conn.ri)
 
-	rtspSessionURL, err := http.LaunchApp(ctx, app.ID, false)
+	rtspSessionURL, err := conn.http.LaunchApp(ctx, app.ID, false)
 	if err != nil {
 		return err
 	}
@@ -131,12 +122,7 @@ func (conn *nvConnection) StartApp(ctx context.Context, app NvApp) error {
 func (conn *nvConnection) StopApp(ctx context.Context) error {
 	moonlight.StopConnection()
 
-	http, err := NewHTTP(conn.uniqueID, conn.host)
-	if err != nil {
-		return err
-	}
-
-	return http.QuitApp(ctx)
+	return conn.http.QuitApp(ctx)
 }
 
 func (conn *nvConnection) StageStarting(stage int) {
